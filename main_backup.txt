@@ -1,0 +1,1008 @@
+#include <QApplication>
+#include <ssim.hpp>
+#include <opencv2/opencv.hpp>
+#include <opencv2/core/core.hpp>
+#include <iostream>
+#include <ctime>
+#include <queue>
+#include "opencv2/highgui/highgui.hpp"
+#include "opencv2/imgproc/imgproc.hpp"
+#include "opencv2/videoio.hpp"
+#include "opencv2/imgcodecs.hpp"
+#include "opencv2/xfeatures2d.hpp"
+#include "mainwindow.hpp"
+
+#define CP_NUM   4
+#define IMWIDTH  640
+#define IMHEIGHT 480
+#define ROI_W    80
+#define ROI_H    80
+#define PIXELS   ROI_W*ROI_H
+#define KSIZE    1  // kernel size for sobel filtering
+
+#define WRITE    1
+#define AUTO_SEL 0
+#define IM_MET   1
+
+#define BASELINE 6   // in mm
+#define FOCAL    12  // in mm
+
+char window_name[24] = "ROI center selection";
+
+double TPS(double pt1x, double pt1y, double pt2x, double pt2y);
+void CalcMXT(cv::Mat M_L, cv::Mat M_R, cv::Mat h_0_L, cv::Mat h_0_R,
+             cv::Mat T_L, cv::Mat T_R, cv::Mat frame_0_L, cv::Mat frame_0_R);
+void CalcK(cv::Mat K, cv::Mat h);
+int ComputeJointHistogram(cv::Mat frame_L, cv::Mat frame_R, cv::Mat frame_0_L, cv::Mat frame_0_R);
+void ComputeExpectedImg();
+void ResetExpected();
+void UpdateJ_0();
+void Jacobian(cv::Mat J, cv::Mat I, cv::Mat MK);
+static void OnMouse(int event, int x, int y, int f, void*);
+void DrawROIBorder(cv::Mat frame, cv::Mat h, bool left);
+void DrawInitBorder(cv::Mat frame);
+void AffineTrans(cv::Mat image, cv::Mat h_a, bool left);
+int MatchFeatures(cv::Mat left, cv::Mat right);
+cv::Mat LoadParameters(std::string path, std::string mat);
+void UpdateDepth(cv::Mat h_depth, cv::Mat h_a_L, cv::Mat h_a_R);
+
+cv::Mat frame_0_color_L, frame_0_L, frame_comp_L, gradx_L, grady_L;
+cv::Mat gradx_comp_L, grady_comp_L, calib_mat_L, proj_mat_L, frame_roi;
+cv::Mat frame_0_color_R, frame_0_R, frame_comp_R, gradx_R, grady_R;
+cv::Mat gradx_comp_R, grady_comp_R, calib_mat_R, proj_mat_R;
+cv::Mat MK_L = cv::Mat::zeros(PIXELS, CP_NUM, CV_32FC1);
+cv::Mat MK_R = cv::Mat::zeros(PIXELS, CP_NUM, CV_32FC1);
+cv::Mat J_0_L = cv::Mat::zeros(PIXELS, CP_NUM*2, CV_32FC1);
+cv::Mat J_0_R = cv::Mat::zeros(PIXELS, CP_NUM*2, CV_32FC1);
+cv::Mat X_L = cv::Mat::zeros(PIXELS, 2, CV_16UC1), X_R = cv::Mat::zeros(PIXELS, 2, CV_16UC1);
+cv::Mat X_depth = cv::Mat(PIXELS, 1, CV_32FC1), MK_depth = cv::Mat(PIXELS, CP_NUM, CV_32FC1);
+cv::Mat roi_proj = cv::Mat(PIXELS, 3, CV_32FC1), roi_3D = cv::Mat(PIXELS, 3, CV_32FC1);
+std::vector<cv::Point2f> left_features, right_features;
+
+int center_x = -1, center_y = -1, n_bins = 256, size_bins = 1;
+int roi_0x_L, roi_0y_L, roi_0x_R, roi_0y_R;
+float expected_L[256], correction_L[256], p_joint_L[256*256];
+float expected_R[256], correction_R[256], p_joint_R[256*256];
+float mu, mv, tu, tv, focal;
+
+int main(int argc, char *argv[]) {
+    std::string source_dir = "/home/kylelindgren/cpp_ws/";
+    // video sources
+    //    VideoCapture cap_L(1); // open the video camera no.
+    //    VideoCapture cap_R(2); // open the video camera no.
+    //    VideoCapture cap_L("/home/kylelindgren/cpp_ws/mc_src_vids/moving_heart_stereo_L.avi");
+    //    VideoCapture cap_R("/home/kylelindgren/cpp_ws/mc_src_vids/moving_heart_stereo_R.avi");
+    cv::VideoCapture cap_L(source_dir + "mc_src_vids/moving_heart_stereo_left_depth.avi");
+    cv::VideoCapture cap_R(source_dir + "mc_src_vids/moving_heart_stereo_right_depth.avi");
+    // output video file
+    cv::VideoWriter cap_write(source_dir + "mc_out_vids/mc_stereo_test_6mm_.avi",
+                              CV_FOURCC('H', '2', '6', '4'), 120,
+                              cv::Size(IMWIDTH*3, IMHEIGHT), false);
+
+    if (!(cap_L.isOpened() && cap_R.isOpened())) {  // if not success, exit program
+        std::cout << "Cannot open the video cameras" << std::endl;
+        return -1;
+    }
+    // take off first few frames to allow auto settings to settle
+    bool bSuccess_L, bSuccess_R;
+    for (int i = 1; i < 180; i++) {
+        bSuccess_L = cap_L.read(frame_0_color_L);
+        bSuccess_R = cap_R.read(frame_0_color_R);
+        if (!(bSuccess_L && bSuccess_R)) {  // if camera fails to capture, exit
+            std::cout << "Cannot read a frame from video streams" << std::endl;
+            return -1;
+        }
+    }
+
+    // load camera parameters
+    std::string yaml_directory = "/home/kylelindgren/cpp_ws/mc_src_vids/";
+    calib_mat_L = LoadParameters(yaml_directory + "left_9mm_12_16.yaml", "camera_matrix");
+    calib_mat_R = LoadParameters(yaml_directory + "right_9mm_12_16.yaml", "camera_matrix");
+    proj_mat_L  = LoadParameters(yaml_directory + "left_9mm_12_16.yaml", "projection_matrix");
+    proj_mat_R  = LoadParameters(yaml_directory + "right_9mm_12_16.yaml", "projection_matrix");
+    // compute inverse transpose of left calibration matrix for projection to 3D coord conversion
+    cv::Mat C_inv_t = calib_mat_L.clone();
+    C_inv_t.convertTo(C_inv_t, CV_32FC1);
+    //    std::cout << C_inv_t * C_inv_t.inv(CV_LU) << std::endl;
+    C_inv_t = C_inv_t.inv(CV_LU);
+    C_inv_t = C_inv_t.t();
+    //    std::cout << C_inv_t << std::endl;
+
+    // reference images and regions of interest (roi)
+    cv::cvtColor(frame_0_color_L, frame_0_L, cv::COLOR_BGR2GRAY);
+    cv::cvtColor(frame_0_color_R, frame_0_R, cv::COLOR_BGR2GRAY);
+
+    frame_comp_L = frame_0_L.clone();
+    frame_comp_R = frame_0_R.clone();
+
+    frame_roi = frame_0_L.clone();
+    int num_features = 0;
+    cv::Mat frame_L_roi, frame_R_roi, frame_L_dummy, frame_R_dummy;
+    frame_0_color_L.copyTo(frame_L_dummy);
+    frame_0_color_R.copyTo(frame_R_dummy);
+    cv::Rect roi;
+
+    // control point selection
+    if (AUTO_SEL) {
+        center_x = 320;  // (315,256) for moving_heart, (258,250) for moving_heart_120
+        center_y = 200;  // 256
+        roi_0x_L = static_cast<int>(center_x-0.5*ROI_W);
+        roi_0y_L = static_cast<int>(center_y-0.5*ROI_H);
+        roi = cv::Rect(roi_0x_L, roi_0y_L, ROI_W, ROI_H);
+        frame_L_roi = frame_L_dummy(roi);
+        num_features = MatchFeatures(frame_L_roi, frame_0_color_R);
+        if (num_features < CP_NUM) {
+            std::cout << "Insufficient features! " << "(" << num_features << "/" << CP_NUM << ")"
+                      << " Try again." << std::endl << std::endl;
+            return -1;
+        }
+    } else {
+        do {
+            while (center_x == -1) {
+                cv::namedWindow(window_name, CV_WINDOW_AUTOSIZE);
+                cv::imshow(window_name, frame_roi);
+                cv::setMouseCallback(window_name, OnMouse, 0);
+                cv::waitKey(1);
+            }
+            cvDestroyWindow(window_name);
+
+            roi_0x_L = static_cast<int>(center_x-0.5*ROI_W);
+            roi_0y_L = static_cast<int>(center_y-0.5*ROI_H);
+
+            cv::Rect roi(roi_0x_L, roi_0y_L, ROI_W, ROI_H);
+            if (roi_0x_L + ROI_W < frame_L_dummy.cols && roi_0x_L - ROI_W >= 0 && roi_0y_L + ROI_H
+                    < frame_L_dummy.rows && roi_0y_L - ROI_H >= 0) {
+                frame_L_roi = frame_L_dummy(roi);
+                num_features = MatchFeatures(frame_L_roi, frame_0_color_R);
+                if (num_features < CP_NUM) {
+                    center_x = -1;
+                    frame_L_roi.release();
+                    left_features.clear(); right_features.clear();
+                    std::cout << "Insufficient features! " << "(" << num_features << "/" << CP_NUM
+                              << ")" << " Try again." << std::endl << std::endl;
+                }
+            } else {
+                std::cout << "Chosen ROI out of bounds!" << std::endl << std::endl;
+                center_x = -1;
+            }
+        } while (num_features < CP_NUM);
+    }
+
+    std::cout << "number of features detected in ROI: " << num_features << std::endl;
+    cv::cvtColor(frame_L_roi, frame_L_roi, cv::COLOR_BGR2GRAY);
+
+    // control point storage
+    cv::Mat h_0_L(CP_NUM*2, 1, CV_32FC1);
+    cv::Mat h_a_L(CP_NUM*2, 1, CV_32FC1);
+    cv::Mat dh_L(CP_NUM*2, 1, CV_32FC1);
+    cv::Mat h_0_R(CP_NUM*2, 1, CV_32FC1);
+    cv::Mat h_a_R(CP_NUM*2, 1, CV_32FC1);
+    cv::Mat dh_R(CP_NUM*2, 1, CV_32FC1);
+
+    cv::Mat h_depth(CP_NUM, 1, CV_32FC1);
+
+    // calc control point depth
+    double disparity, disparity_tot = 0, depth;
+    mu = calib_mat_L.at<double>(0, 0) / FOCAL;
+    mv = calib_mat_L.at<double>(1, 1) / FOCAL;
+    tu = calib_mat_L.at<double>(0, 2) / mu;
+    tv = calib_mat_L.at<double>(1, 2) / mv;
+    focal = calib_mat_L.at<double>(0, 0);
+    for (int i = 0; i < CP_NUM; i++) {
+        // using control points from feature matching
+        h_0_L.at<float>(i, 0)        = left_features[i].x + roi_0x_L;
+        h_0_L.at<float>(i+CP_NUM, 0) = left_features[i].y + roi_0y_L;
+        h_0_R.at<float>(i, 0)        = right_features[i].x;
+        h_0_R.at<float>(i+CP_NUM, 0) = right_features[i].y;
+
+        disparity = fabs(h_0_L.at<float>(i, 0) - h_0_R.at<float>(i, 0));
+        depth = BASELINE * focal / disparity;
+        h_depth.at<float>(i, 0) = depth;
+
+        // used for estimating roi_0x_L,roi_0y_L for right image
+        disparity_tot += fabs((left_features[i].x + roi_0x_L) - (right_features[i].x));
+    }
+    h_a_L = h_0_L.clone();  // initial control pt values used for 1st current control pt estimates
+    h_a_R = h_0_R.clone();
+
+    // fill X matrix with calculated 3D coordinates of all pixels in roi
+    uint16_t x_pos, y_pos;
+    double dst[4], depth_x, dst_tot, max = 0, min = INFINITY;
+    for (int i = 0; i < PIXELS; i++) {
+        x_pos = uint16_t(static_cast<int>(i%ROI_W)+roi_0x_L);
+        y_pos = uint16_t(static_cast<int>(i/ROI_W)+roi_0y_L);
+        X_L.at<ushort>(i, 0) = x_pos;
+        X_L.at<ushort>(i, 1) = y_pos;
+
+        dst[0] = sqrt(pow(static_cast<double>(x_pos) -
+                          (static_cast<double>(left_features[0].x + roi_0x_L)), 2) +
+                        pow(static_cast<double>(y_pos) -
+                            (static_cast<double>(left_features[0].y + roi_0y_L)), 2));
+        dst[1] = sqrt(pow(static_cast<double>(x_pos) -
+                          (static_cast<double>(left_features[1].x + roi_0x_L)), 2) +
+                        pow(static_cast<double>(y_pos) -
+                            (static_cast<double>(left_features[1].y + roi_0y_L)), 2));
+        dst[2] = sqrt(pow(static_cast<double>(x_pos) -
+                          (static_cast<double>(left_features[2].x + roi_0x_L)), 2) +
+                        pow(static_cast<double>(y_pos) -
+                            (static_cast<double>(left_features[2].y + roi_0y_L)), 2));
+        dst[3] = sqrt(pow(static_cast<double>(x_pos) -
+                          (static_cast<double>(left_features[3].x + roi_0x_L)), 2) +
+                        pow(static_cast<double>(y_pos) -
+                            (static_cast<double>(left_features[3].y + roi_0y_L)), 2));
+//        std::cout << dst[0] << " " << dst[1] << " " << dst[2] << " " << dst[3] << std::endl;
+
+        // estimate depth of each pixel from control point depths (inverse distance relationship)
+        dst_tot = depth_x = 0;
+        for (int i = 0; i < 4; i++) {
+            if (dst[i]) {
+                dst[i] = 1/dst[i];
+                dst_tot += dst[i];
+            }
+        }
+        for (int i = 0; i < CP_NUM; i++)
+            depth_x += (dst[i]/dst_tot)*h_depth.at<float>(i, 0);
+
+        if (depth_x > max)  // max and min for displaying roi depth image
+            max = depth_x;
+        else if (depth_x < min)
+            min = depth_x;
+
+        roi_proj.at<float>(i, 2) = depth_x;
+    }
+
+    // visual depth image for roi
+    /*
+    cv::Mat depth_im = cv::Mat::zeros(ROI_H, ROI_W, CV_8UC1);
+    for (int r = 0; r < ROI_H; r++)
+        for (int c = 0; c < ROI_W; c++)
+            depth_im.at<uchar>(r, c) = (roi_proj.at<float>(r*ROI_H+c, 2)-min)*255/(max-min);
+    imshow("depth image", depth_im);
+    cvWaitKey();
+    cvDestroyWindow("depth image");
+//*/
+
+    cv::Mat M_L = cv::Mat::zeros(PIXELS, CP_NUM+3, CV_32FC1);
+    cv::Mat K_L = cv::Mat::zeros(CP_NUM+3, CP_NUM+3, CV_32FC1);
+    cv::Mat M_R = cv::Mat::zeros(PIXELS, CP_NUM+3, CV_32FC1);
+    cv::Mat K_R = cv::Mat::zeros(CP_NUM+3, CP_NUM+3, CV_32FC1);
+
+    roi_0x_R = roi_0x_L - static_cast<int>(disparity_tot/CP_NUM);  // rough estimate
+    roi_0y_R = roi_0y_L;
+    X_R.at<ushort>(0, 0) = roi_0x_R;
+    X_R.at<ushort>(0, 1) = roi_0y_R;
+    roi = cv::Rect(roi_0x_R, roi_0y_R, ROI_W, ROI_H);
+    frame_R_roi = frame_R_dummy(roi);
+    cv::cvtColor(frame_R_roi, frame_R_roi, cv::COLOR_BGR2GRAY);
+    cv::Mat T_L = cv::Mat::zeros(PIXELS, 1, CV_32FC1);
+    cv::Mat I_L = cv::Mat::zeros(PIXELS, 1, CV_32FC1);
+    cv::Mat im_diff_L = cv::Mat::zeros(PIXELS, 1, CV_32FC1);
+    cv::Mat T_R = cv::Mat::zeros(PIXELS, 1, CV_32FC1);
+    cv::Mat I_R = cv::Mat::zeros(PIXELS, 1, CV_32FC1);
+    cv::Mat im_diff_R = cv::Mat::zeros(PIXELS, 1, CV_32FC1);
+
+    // calculate M, get X_R,T
+    CalcMXT(M_L, M_R, h_0_L, h_0_R, T_L, T_R, frame_0_L, frame_0_R);
+
+    // calculate Ks
+    CalcK(K_L, h_0_L);
+    CalcK(K_R, h_0_R);
+
+    cv::Mat K_inv_L = cv::Mat::zeros(CP_NUM+3, CP_NUM+3, CV_32FC1);
+    cv::Mat Ks_L = cv::Mat::zeros(CP_NUM+3, CP_NUM, CV_32FC1);
+    K_inv_L = K_L.inv(CV_LU);
+    Ks_L = K_inv_L(cv::Range(0, CP_NUM+3), cv::Range(0, CP_NUM));
+    cv::Mat K_inv_R = cv::Mat::zeros(CP_NUM+3, CP_NUM+3, CV_32FC1);
+    cv::Mat Ks_R = cv::Mat::zeros(CP_NUM+3, CP_NUM, CV_32FC1);
+    K_inv_R = K_R.inv(CV_LU);
+    Ks_R = K_inv_R(cv::Range(0, CP_NUM+3), cv::Range(0, CP_NUM));
+
+    cv::Mat J_i_L   = cv::Mat::zeros(PIXELS, CP_NUM*2, CV_32FC1);
+    cv::Mat J_2_L   = cv::Mat::zeros(PIXELS, CP_NUM*2, CV_32FC1);
+    cv::Mat J_inv_L = cv::Mat::zeros(CP_NUM*2, PIXELS, CV_32FC1);
+    cv::Mat J_i_R   = cv::Mat::zeros(PIXELS, CP_NUM*2, CV_32FC1);
+    cv::Mat J_2_R   = cv::Mat::zeros(PIXELS, CP_NUM*2, CV_32FC1);
+    cv::Mat J_inv_R = cv::Mat::zeros(CP_NUM*2, PIXELS, CV_32FC1);
+
+    cv::Mat mapx_L = cv::Mat::zeros(PIXELS, 1, CV_32FC1);
+    cv::Mat mapy_L = cv::Mat::zeros(PIXELS, 1, CV_32FC1);
+    cv::Mat mapx_R = cv::Mat::zeros(PIXELS, 1, CV_32FC1);
+    cv::Mat mapy_R = cv::Mat::zeros(PIXELS, 1, CV_32FC1);
+    cv::Mat roi_proj = cv::Mat::zeros(PIXELS, 3, CV_32FC1);
+
+    MK_L = M_L*Ks_L;
+    MK_R = M_R*Ks_R;
+
+    int iter;
+    double delta_h_L;
+    double delta_h_R;
+    int frame_num = 0;
+    double delta = 1e-2;
+
+    cv::Mat frame_L;
+    cv::Mat frame_color_L;
+    cv::Mat frame_R;
+    cv::Mat frame_color_R;
+    cv::Mat warped_L;
+    cv::Mat warped_R;
+
+    // writing location values on images
+    cv::String text;
+    int fontFace = cv::FONT_HERSHEY_SIMPLEX;
+    double fontScale = 0.75;
+    int thickness = 1;
+    int baseLine = 0;
+    std::list<float> xl, yl, zl;
+    float x, y, z;
+    x = y = z = 0;
+    int qsize = 30;
+
+    cv::String text_ssim_L, text_ssim_R;
+    float ssim_L, ssim_R;
+    double fontScale_ssim = 0.5;
+
+    ResetExpected();
+
+    // image matrices for displaying backwarping and warping
+    cv::Mat current_stable_roi(ROI_H, ROI_W*3, CV_8UC1);
+    cv::Mat left_roi(current_stable_roi, cv::Rect(0, 0, ROI_W, ROI_H));
+    cv::Mat mid_roi(current_stable_roi, cv::Rect(ROI_W, 0, ROI_W, ROI_H));
+    cv::Mat right_roi(current_stable_roi, cv::Rect(ROI_W*2, 0, ROI_W, ROI_H));
+
+    cv::Mat current_stable_im(IMHEIGHT, IMWIDTH*3, CV_8UC1);
+    cv::Mat left_im(current_stable_im, cv::Rect(0, 0, IMWIDTH, IMHEIGHT));
+    cv::Mat mid_im(current_stable_im, cv::Rect(IMWIDTH, 0, IMWIDTH, IMHEIGHT));
+    cv::Mat right_im(current_stable_im, cv::Rect(IMWIDTH*2, 0, IMWIDTH, IMHEIGHT));
+
+    std::cout << "Program starting..." << std::endl;
+    while (1) {
+        frame_num++;
+
+        clock_t begin = clock();
+        bSuccess_L = cap_L.read(frame_color_L);  // read a new frame from video
+        bSuccess_R = cap_R.read(frame_color_R);
+        if (!(bSuccess_L && bSuccess_R)) {  // if not success, break loop
+            std::cout << "Cannot read a frame from video streams" << std::endl;
+            break;
+        }
+        cv::cvtColor(frame_color_L, frame_L, cv::COLOR_BGR2GRAY);
+        cv::cvtColor(frame_color_R, frame_R, cv::COLOR_BGR2GRAY);
+
+        ComputeExpectedImg();
+        UpdateJ_0();
+
+        // update reference pixel values after lighting compensation
+        for (int p = 0; p < PIXELS; p++) {
+            T_L.at<float>(p, 0) = frame_comp_L.at<uchar>(X_L.at<ushort>(p, 1),
+                                                         X_L.at<ushort>(p, 0));
+            T_R.at<float>(p, 0) = frame_comp_R.at<uchar>(X_R.at<ushort>(p, 1),
+                                                         X_R.at<ushort>(p, 0));
+        }
+
+        dh_L = cv::Scalar(0);
+        dh_R = cv::Scalar(0);
+        iter = 0;
+        do {
+            mapx_L = MK_L*h_a_L(cv::Range(0, CP_NUM), cv::Range::all());
+            mapy_L = MK_L*h_a_L(cv::Range(CP_NUM, 2*CP_NUM), cv::Range::all());
+            mapx_R = MK_R*h_a_R(cv::Range(0, CP_NUM), cv::Range::all());
+            mapy_R = MK_R*h_a_R(cv::Range(CP_NUM, 2*CP_NUM), cv::Range::all());
+            cv::remap(frame_L, warped_L, mapx_L.reshape(1, ROI_H), mapy_L.reshape(1, ROI_H),
+                                                        cv::INTER_LINEAR, 0, cv::Scalar(0));
+            cv::remap(frame_R, warped_R, mapx_R.reshape(1, ROI_H), mapy_R.reshape(1, ROI_H),
+                                                        cv::INTER_LINEAR, 0, cv::Scalar(0));
+            // show warping each iteration
+/*
+            warped_L.copyTo(left_roi);
+            warped_R.copyTo(right_roi);
+            frame_L_roi.copyTo(mid_roi);
+            cv::imshow("warped left, roi, warped right", current_stable_roi);
+            cv::waitKey(1);
+//*/
+
+            warped_L.convertTo(warped_L, CV_32FC1);
+            warped_R.convertTo(warped_R, CV_32FC1);
+
+            I_L = warped_L.reshape(1, PIXELS);
+            I_R = warped_R.reshape(1, PIXELS);
+
+            Jacobian(J_i_L, warped_L, MK_L);
+            Jacobian(J_i_R, warped_R, MK_R);
+
+            J_2_L = J_i_L + J_0_L;
+            J_2_R = J_i_R + J_0_R;
+            J_inv_L = (J_2_L.t()*J_2_L).inv(CV_LU)*J_2_L.t();
+            J_inv_R = (J_2_R.t()*J_2_R).inv(CV_LU)*J_2_R.t();
+            im_diff_L = I_L - T_L;
+            im_diff_R = I_R - T_R;
+
+            dh_L = -2*J_inv_L*im_diff_L;
+            dh_R = -2*J_inv_R*im_diff_R;
+            h_a_L = h_a_L + dh_L;
+            h_a_R = h_a_R + dh_R;
+
+            iter++;
+
+            delta_h_L = 0;
+            delta_h_R = 0;
+            for (int j = 0; j < CP_NUM*2; j++) {
+                delta_h_L += fabs(dh_L.at<float>(j, 0));
+                delta_h_R += fabs(dh_R.at<float>(j, 0));
+            }
+//            std::cout << iter << "\t" << delta_h_L << std::endl;
+        } while (delta_h_L > delta && delta_h_R > delta && iter < 30);
+
+        ComputeJointHistogram(frame_L, frame_R, frame_0_L, frame_0_R);
+
+        // use TPS for depth or just pixel disparity from estimates roi x,y values?
+        //        UpdateDepth(h_depth, h_a_L, h_a_R);
+        //        roi_proj.col(2) = MK_L*h_depth;
+
+        // calc projective coords (u,v,w) of roi
+        roi_proj.col(2) = BASELINE * focal / (mapx_L - mapx_R);  // depth in mm -> w = Z
+        roi_proj.col(0) = mapx_L.mul(roi_proj.col(2));           // pixel values * depth(w)
+        roi_proj.col(1) = mapy_L.mul(roi_proj.col(2));
+
+        roi_3D = roi_proj*C_inv_t;
+
+        text = cv::format("X: %.0fmm, Y: %.0fmm, Z: %.0fmm", x, y, z);
+
+        // using lists for averaging display values
+        xl.push_front(roi_3D.at<float>(PIXELS/2, 0));
+        yl.push_front(roi_3D.at<float>(PIXELS/2, 1));
+        zl.push_front(roi_3D.at<float>(PIXELS/2, 2));
+        if (frame_num > qsize) {
+            x += xl.front() - xl.back(); y += yl.front() - yl.back(); z += zl.front() - zl.back();
+            text = cv::format("X: %.0fmm, Y: %0.0fmm, Z: %.0fmm", x/qsize, y/qsize, z/qsize);
+            xl.pop_back(); yl.pop_back(); zl.pop_back();
+        } else {
+            x += xl.front(); y += yl.front(); z += zl.front();
+            text = "";
+        }
+
+        Size textSize = getTextSize(text, fontFace, fontScale, thickness, &baseLine);
+        baseLine += thickness;
+
+        // center the text
+        Point textOrg((frame_L.cols - textSize.width)/2, (frame_L.rows - textSize.height));
+
+        frame_L.copyTo(left_im);
+        frame_R.copyTo(right_im);
+        // illuminate control points for display
+        for (int i = 0; i < CP_NUM; i++) {
+            left_im.at<uchar>(h_a_L.at<float>(i+CP_NUM, 0), h_a_L.at<float>(i, 0)) = 255;
+            right_im.at<uchar>(h_a_R.at<float>(i+CP_NUM, 0), h_a_R.at<float>(i, 0)) = 255;
+        }
+        DrawROIBorder(left_im, h_a_L, true);
+        DrawROIBorder(right_im, h_a_R, false);
+        AffineTrans(left_im, h_a_L, true);
+        AffineTrans(right_im, h_a_R, false);
+        if (IM_MET) {
+            ssim_L = compute_quality_metrics(frame_L_roi, warped_L, 8, 1);
+            ssim_R = compute_quality_metrics(frame_R_roi, warped_R, 8, 1);
+            text_ssim_L = format("SSIM:%.3f", ssim_L);
+            text_ssim_R = format("SSIM:%.3f", ssim_R);
+            textSize = getTextSize(text_ssim_L, fontFace, fontScale_ssim, thickness, &baseLine);
+            cv::Point text_ssim_Lorg(roi_0x_L + (ROI_W - textSize.width)/2, roi_0y_L-3);
+            cv::Point text_ssim_Rorg(roi_0x_R + (ROI_W - textSize.width)/2, roi_0y_R-3);
+            putText(left_im,  text_ssim_L, text_ssim_Lorg, fontFace,
+                    fontScale_ssim, cv::Scalar::all(255), thickness, 8);
+            putText(right_im, text_ssim_R, text_ssim_Rorg, fontFace,
+                    fontScale_ssim, cv::Scalar::all(255), thickness, 8);
+        }
+        DrawInitBorder(frame_L);
+        putText(frame_L, text, textOrg, fontFace, fontScale, cv::Scalar::all(255), thickness, 8);
+        frame_L.copyTo(mid_im);
+        cv::imshow("Original stream, Stabilized stream", current_stable_im);
+        if (WRITE)
+            cap_write.write(current_stable_im);
+
+        clock_t end = clock();
+
+        std::cout << "exiting frame # " << frame_num << " after " << iter << " iterations and\t"
+                  << static_cast<double>(end-begin)/CLOCKS_PER_SEC << " seconds" << std::endl;
+
+        if ((cv::waitKey(1) & 0xFF) == 27 || (cv::waitKey(1) & 0xFF) == 'q') {
+            std::cout << "Program ended by user." << std::endl;
+            break;
+        }
+    }
+
+    return 0;
+}
+
+
+
+double TPS(double pt1x, double pt1y, double pt2x, double pt2y) {
+    double s_2 = pow(pt1x-pt2x, 2) + pow(pt1y-pt2y, 2);
+    return s_2 == 0 ? 0 : s_2*log(s_2);
+}
+
+void CalcMXT(cv::Mat M_L, cv::Mat M_R, cv::Mat h_0_L, cv::Mat h_0_R, cv::Mat T_L,
+             cv::Mat T_R, cv::Mat frame_0_L, cv::Mat frame_0_R) {
+    double x_pos, y_pos;
+    int offx;
+    int offy;
+    for (int r = 0; r < PIXELS; r++) {
+        x_pos = X_L.at<ushort>(r, 0);
+        y_pos = X_L.at<ushort>(r, 1);
+        T_L.at<float>(r, 0) = frame_0_L.at<uchar>(y_pos, x_pos);
+        for (int c = 0; c <= CP_NUM; c++) {  // fill M
+            if (c != CP_NUM) {
+                M_L.at<float>(r, c) = TPS(h_0_L.at<float>(c, 0),
+                                          h_0_L.at<float>(c+CP_NUM, 0), x_pos, y_pos);
+            } else {
+                M_L.at<float>(r, c+0) = 1;
+                M_L.at<float>(r, c+1) = x_pos;
+                M_L.at<float>(r, c+2) = y_pos;
+            }
+        }
+    }
+    offx = X_R.at<ushort>(0, 0);
+    offy = X_R.at<ushort>(0, 1);
+    for (int r = 0; r < PIXELS; r++) {
+        x_pos = static_cast<int>(r%ROI_W)+offx;
+        y_pos = static_cast<int>(r/ROI_W)+offy;
+        X_R.at<ushort>(r, 0) = x_pos;  // fill X and T
+        X_R.at<ushort>(r, 1) = y_pos;
+        T_R.at<float>(r, 0) = frame_0_R.at<uchar>(y_pos, x_pos);
+        for (int c = 0; c <= CP_NUM; c++) {
+            if (c != CP_NUM) {
+                M_R.at<float>(r, c) = TPS(h_0_R.at<float>(c, 0),
+                                          h_0_R.at<float>(c+CP_NUM, 0), x_pos, y_pos);
+            } else {
+                M_R.at<float>(r, c+0) = 1;
+                M_R.at<float>(r, c+1) = x_pos;
+                M_R.at<float>(r, c+2) = y_pos;
+            }
+        }
+    }
+    return;
+}
+
+void CalcK(cv::Mat K, cv::Mat h) {
+    for (int r = 0 ; r < CP_NUM; r++)
+        for (int c = 0; c <= CP_NUM; c++)
+            if (c > r || c == CP_NUM) {  // K symmetric so only calculate upper right, copy values
+                if (c == CP_NUM) {
+                    K.at<float>(r, c+0) = K.at<float>(c+0, r) = 1;
+                    K.at<float>(r, c+1) = K.at<float>(c+1, r) = h.at<float>(r, 0);
+                    K.at<float>(r, c+2) = K.at<float>(c+2, r) = h.at<float>(r+CP_NUM, 0);
+                } else {
+                    K.at<float>(r, c) = K.at<float>(c, r) = TPS(h.at<float>(r, 0),
+                        h.at<float>(r+CP_NUM, 0), h.at<float>(c, 0), h.at<float>(c+CP_NUM, 0));
+                }
+            }
+    return;
+}
+
+void UpdateDepth(cv::Mat h_depth, cv::Mat h_a_L, cv::Mat h_a_R) {
+    double disparity;
+    for (int i = 0; i < CP_NUM; i++) {
+        disparity = fabs(h_a_L.at<float>(i, 0) - h_a_R.at<float>(i, 0));
+        h_depth.at<float>(i, 0) = BASELINE * focal / disparity;
+    }
+    return;
+}
+
+void OnMouse(int event, int x, int y, int f, void* ) {
+    if (event == cv::EVENT_LBUTTONDOWN) {
+        center_x = x;
+        center_y = y;
+        std::cout << "Region of interest center: [" << x << ", " << y << "]" << std::endl;
+    }
+    return;
+}
+
+void DrawROIBorder(cv::Mat frame, cv::Mat h, bool left) {
+    int line_thick = 1, line_type = CV_AA;
+    cv::Scalar color = cv::Scalar(255, 255, 255);
+
+    float ulx, uly, urx, ury, llx, lly, lrx, lry;
+    cv::Mat mat_ulx(1, 1, CV_32F, &ulx), mat_uly(1, 1, CV_32F, &uly);
+    cv::Mat mat_urx(1, 1, CV_32F, &urx), mat_ury(1, 1, CV_32F, &ury);
+    cv::Mat mat_llx(1, 1, CV_32F, &llx), mat_lly(1, 1, CV_32F, &lly);
+    cv::Mat mat_lrx(1, 1, CV_32F, &lrx), mat_lry(1, 1, CV_32F, &lry);
+
+    cv::Mat hx = cv::Mat::zeros(CP_NUM, 1, CV_32FC1);
+    cv::Mat hy = cv::Mat::zeros(CP_NUM, 1, CV_32FC1);
+    hx = h(cv::Range(0, CP_NUM), cv::Range::all());
+    hy = h(cv::Range(CP_NUM, CP_NUM*2), cv::Range::all());
+
+    if (left) {
+        mat_ulx = MK_L.row(0)*hx;
+        mat_uly = MK_L.row(0)*hy;
+        mat_urx = MK_L.row(ROI_W-1)*hx;
+        mat_ury = MK_L.row(ROI_W-1)*hy;
+        mat_llx = MK_L.row(PIXELS-ROI_W+1)*hx;
+        mat_lly = MK_L.row(PIXELS-ROI_W+1)*hy;
+        mat_lrx = MK_L.row(PIXELS-1)*hx;
+        mat_lry = MK_L.row(PIXELS-1)*hy;
+    } else {
+        mat_ulx = MK_R.row(0)*hx;
+        mat_uly = MK_R.row(0)*hy;
+        mat_urx = MK_R.row(ROI_W-1)*hx;
+        mat_ury = MK_R.row(ROI_W-1)*hy;
+        mat_llx = MK_R.row(PIXELS-ROI_W+1)*hx;
+        mat_lly = MK_R.row(PIXELS-ROI_W+1)*hy;
+        mat_lrx = MK_R.row(PIXELS-1)*hx;
+        mat_lry = MK_R.row(PIXELS-1)*hy;
+    }
+    line(frame, cv::Point(round(ulx), round(uly)),
+                cv::Point(round(urx), round(ury)), color, line_thick, line_type);
+    line(frame, cv::Point(round(llx), round(lly)),
+                cv::Point(round(lrx), round(lry)), color, line_thick, line_type);
+    line(frame, cv::Point(round(ulx), round(uly)),
+                cv::Point(round(llx), round(lly)), color, line_thick, line_type);
+    line(frame, cv::Point(round(urx), round(ury)),
+                cv::Point(round(lrx), round(lry)), color, line_thick, line_type);
+    return;
+}
+
+void DrawInitBorder(cv::Mat frame) {
+    int line_thick = 1, line_type = CV_AA;
+    cv::Scalar color = cv::Scalar(255, 255, 255);
+    int lx = roi_0x_L, rx = lx + ROI_W;
+    int ty = roi_0y_L, by = ty + ROI_H;
+
+    line(frame, cv::Point(lx, ty), cv::Point(rx, ty), color, line_thick, line_type);
+    line(frame, cv::Point(lx, by), cv::Point(rx, by), color, line_thick, line_type);
+    line(frame, cv::Point(lx, ty), cv::Point(lx, by), color, line_thick, line_type);
+    line(frame, cv::Point(rx, ty), cv::Point(rx, by), color, line_thick, line_type);
+
+    return;
+}
+
+// function from Richa
+int ComputeJointHistogram(cv::Mat frame_L, cv::Mat frame_R, cv::Mat frame_0_L, cv::Mat frame_0_R) {
+    int u, v, index_L, index_R, flag_error = 0, acc;
+
+    float p_ref;
+
+    // zeroing p_joint and acc
+    for (u = 0; u < n_bins*n_bins; u++)
+        p_joint_L[u] = p_joint_R[u] = 0;
+
+    acc = 0;
+
+    // computing p_joint between 'current_warp' and 'Template'
+    for (u = 0; u < ROI_W; u++) {
+        for (v = 0; v < ROI_H; v++) {
+            index_L = ((frame_L.at<uchar>(v, u) + 1)/size_bins - 1) +
+                        n_bins*((frame_0_L.at<uchar>(v, u) + 1)/size_bins - 1);
+            index_R = ((frame_R.at<uchar>(v, u) + 1)/size_bins - 1) +
+                        n_bins*((frame_0_R.at<uchar>(v, u) + 1)/size_bins - 1);
+
+            p_joint_L[index_L]++;
+            p_joint_R[index_R]++;
+
+            acc++;
+        }
+    }
+
+    // Normalizing the histogram
+    if (acc > 0) {
+        // left
+        for (u = 0; u < n_bins*n_bins; u++)
+            p_joint_L[u] = p_joint_L[u]/acc;
+
+        // computing expected intensity values
+        for (u = 0; u < n_bins; u++) {
+            // calcula p_ref
+            p_ref = 0;
+
+            for (v = 0; v <n_bins; v++)
+                p_ref += p_joint_L[v + n_bins*u];
+
+            // expected value
+            expected_L[u] = 0;
+
+            if (p_ref > 0) {
+                for (v = 0; v < n_bins; v++)
+                    expected_L[u] += ((v+1)*p_joint_L[v + n_bins*u]/p_ref);
+
+                expected_L[u]--;
+            } else {
+                expected_L[u] = static_cast<float>(u);
+            }
+        }
+        // right
+        for (u = 0; u < n_bins*n_bins; u++)
+            p_joint_R[u] = p_joint_R[u]/acc;
+
+        // computing expected intensity values
+        for (u = 0; u < n_bins; u++) {
+            // calcula p_ref
+            p_ref = 0;
+
+            for (v = 0; v < n_bins; v++)
+                p_ref += p_joint_R[v + n_bins*u];
+
+            // expected value
+            expected_R[u] = 0;
+
+            if (p_ref > 0) {
+                for (v = 0; v < n_bins; v++)
+                    expected_R[u] += ((v+1)*p_joint_R[v + n_bins*u]/p_ref);
+
+                expected_R[u]--;
+            } else {
+                expected_R[u] = static_cast<float>(u);
+            }
+        }
+    } else {
+        for (u = 0; u < n_bins; u++)
+            expected_L[u] = expected_R[u] = static_cast<float>(u);
+    }
+
+    return flag_error;
+}
+
+void ResetExpected() {
+    for (int u = 0; u < n_bins; u++)
+        expected_L[u] = expected_R[u] = static_cast<float>(u);
+}
+
+void ComputeExpectedImg() {
+    // Calculates intensity value to be added to each intensity value in reference image
+    for (int u = 0; u < n_bins; u++) {
+        correction_L[u] = size_bins*(expected_L[u] - u);
+        correction_R[u] = size_bins*(expected_R[u] - u);
+    }
+
+    // Correcting template
+    for (int v = 0; v < ROI_H; v++)
+        for (int u = 0; u < ROI_W; u++) {
+            frame_comp_L.at<uchar>(v, u) = frame_0_L.at<uchar>(v, u) +
+                    cvRound(correction_L[cvRound(static_cast<float>
+                                                 (frame_0_L.at<uchar>(v, u)/size_bins))]);
+            frame_comp_R.at<uchar>(v, u) = frame_0_R.at<uchar>(v, u) +
+                    cvRound(correction_R[cvRound(static_cast<float>
+                                                 (frame_0_R.at<uchar>(v, u)/size_bins))]);
+        }
+
+    // Re-computing Gradient
+    Sobel(frame_comp_L, gradx_comp_L, CV_32F, 1, 0, KSIZE);
+    Sobel(frame_comp_L, grady_comp_L, CV_32F, 0, 1, KSIZE);
+    Sobel(frame_comp_R, gradx_comp_R, CV_32F, 1, 0, KSIZE);
+    Sobel(frame_comp_R, grady_comp_R, CV_32F, 0, 1, KSIZE);
+}
+
+void UpdateJ_0() {
+    cv::Mat temp_L = cv::Mat(1, 1, CV_32FC1);
+    cv::Mat temp_R = cv::Mat(1, 1, CV_32FC1);
+    cv::Mat mat_temp = cv::Mat::zeros(CP_NUM, 1, CV_32FC1);
+    for (int r = 0; r < PIXELS; r++)
+        for (int c = 0; c < CP_NUM*2; c++) {
+            mat_temp = cv::Scalar(0);
+            mat_temp.at<float>(c%CP_NUM, 0) = 1;
+            temp_L = MK_L.row(r)*mat_temp;
+            temp_R = MK_R.row(r)*mat_temp;
+            if (c < CP_NUM) {
+                J_0_L.at<float>(r, c) = temp_L.at<float>(0, 0)*gradx_comp_L.at<float>
+                        (X_L.at<ushort>(r, 1), X_L.at<ushort>(r, 0));
+                J_0_R.at<float>(r, c) = temp_R.at<float>(0, 0)*gradx_comp_R.at<float>
+                        (X_R.at<ushort>(r, 1), X_R.at<ushort>(r, 0));
+            } else {
+                J_0_L.at<float>(r, c) = temp_L.at<float>(0, 0)*grady_comp_L.at<float>
+                        (X_L.at<ushort>(r, 1), X_L.at<ushort>(r, 0));
+                J_0_R.at<float>(r, c) = temp_R.at<float>(0, 0)*grady_comp_R.at<float>
+                        (X_R.at<ushort>(r, 1), X_R.at<ushort>(r, 0));
+            }
+        }
+}
+
+void Jacobian(cv::Mat J, cv::Mat I, cv::Mat MK) {
+    cv::Mat gradx, grady;
+    cv::Mat temp = cv::Mat(1, 1, CV_32FC1);
+    cv::Mat mat_temp = cv::Mat(CP_NUM, 1, CV_32FC1);
+    cv::Sobel(I, gradx, CV_32F, 1, 0, KSIZE);
+    cv::Sobel(I, grady, CV_32F, 0, 1, KSIZE);
+    cv::Mat grad_j = cv::Mat(1, 1, CV_32FC1);
+    for (int r = 0; r < PIXELS; r++) {
+        for (int c = 0; c < CP_NUM*2; c++) {
+            mat_temp = cv::Scalar(0);
+            mat_temp.at<float>(c%CP_NUM, 0) = 1;
+            temp = MK.row(r)*mat_temp;
+            if (c < CP_NUM)
+                grad_j = temp.at<float>(0, 0)*gradx.at<float>(static_cast<int>(r/ROI_W), r%ROI_W);
+            else
+                grad_j = temp.at<float>(0, 0)*grady.at<float>(static_cast<int>(r/ROI_W), r%ROI_W);
+
+            J.at<float>(r, c) = grad_j.at<float>(0, 0);
+        }
+    }
+    return;
+}
+
+void drawGrid(cv::Mat image, cv::Mat h) {
+    int step_x = floor(ROI_W/(CP_NUM+1));
+    int step_y = floor(ROI_H/(CP_NUM+1));
+    int k;
+    float x1, x2, y1, y2;
+    cv::Mat mat_x1(1, 1, CV_32F, &x1), mat_x2(1, 1, CV_32F, &x2);
+    cv::Mat mat_y1(1, 1, CV_32F, &y1), mat_y2(1, 1, CV_32F, &y2);
+    cv::Mat hx = cv::Mat::zeros(CP_NUM, 1, CV_32FC1);
+    cv::Mat hy = cv::Mat::zeros(CP_NUM, 1, CV_32FC1);
+    hx = h(cv::Range(0, CP_NUM), cv::Range::all());
+    hy = h(cv::Range(CP_NUM, CP_NUM*2), cv::Range::all());
+    int line_thick = 1;
+    int line_type = CV_AA;  // CV_AA, 4, 8
+
+    // horizontal lines
+    for (int r = 0; r <= CP_NUM; r++)
+        for (int c = 0; c < CP_NUM; c++) {
+            k = r*ROI_W*step_y + c*step_x;
+            mat_x1 = MK_L.row(k)*hx;
+            mat_y1 = MK_L.row(k)*hy;
+            if (r == CP_NUM) {
+                mat_x2 = MK_L.row(k+step_x-1)*hx;
+                mat_y2 = MK_L.row(k+step_x-1)*hy;
+            } else {
+                mat_x2 = MK_L.row(k+step_x)*hx;
+                mat_y2 = MK_L.row(k+step_x)*hy;
+            }
+            line(image, cv::Point(round(x1), round(y1)), cv::Point(round(x2), round(y2)),
+                 cv::Scalar(255, 255, 255), line_thick, line_type);
+        }
+
+    // vertical lines
+    for (int c = 0; c <= CP_NUM; c++)
+        for (int r = 0; r < CP_NUM; r++) {
+            k = r*ROI_W*step_y + c*step_x;
+            mat_x1 = MK_L.row(k)*hx;
+            mat_y1 = MK_L.row(k)*hy;
+            if (c == CP_NUM) {
+                mat_x2 = MK_L.row(k+(step_y-1)*ROI_W)*hx;
+                mat_y2 = MK_L.row(k+(step_y-1)*ROI_W)*hy;
+            } else {
+                mat_x2 = MK_L.row(k+step_y*ROI_W)*hx;
+                mat_y2 = MK_L.row(k+step_y*ROI_W)*hy;
+            }
+            line(image, cv::Point(round(x1), round(y1)), cv::Point(round(x2), round(y2)),
+                 cv::Scalar(255, 255, 255), line_thick, line_type);
+        }
+}
+
+void AffineTrans(cv::Mat image, cv::Mat h_a, bool left) {
+    cv::Mat warp_mat_inv;
+    cv::Point2f srcTri[3];
+    cv::Point2f dstTri[3];
+    float x1, x2, x3, x4, y1, y2, y3, y4;
+    cv::Mat mat_x1(1, 1, CV_32F, &x1), mat_x2(1, 1, CV_32F, &x2);
+    cv::Mat mat_x3(1, 1, CV_32F, &x3), mat_x4(1, 1, CV_32F, &x4);
+    cv::Mat mat_y1(1, 1, CV_32F, &y1), mat_y2(1, 1, CV_32F, &y2);
+    cv::Mat mat_y3(1, 1, CV_32F, &y3), mat_y4(1, 1, CV_32F, &y4);
+    cv::Mat hx = cv::Mat::zeros(CP_NUM, 1, CV_32FC1);
+    cv::Mat hy = cv::Mat::zeros(CP_NUM, 1, CV_32FC1);
+    hx = h_a(cv::Range(0, CP_NUM), cv::Range::all());
+    hy = h_a(cv::Range(CP_NUM, CP_NUM*2), cv::Range::all());
+
+    if (left) {
+        mat_x1 = MK_L.row(0)*hx;
+        mat_x2 = MK_L.row(ROI_W-1)*hx;
+        mat_x3 = MK_L.row(ROI_W*(ROI_H-1))*hx;
+    //    mat_x4 = MK_L.row(ROI_W*ROI_H-1)*hx;
+        mat_y1 = MK_L.row(0)*hy;
+        mat_y2 = MK_L.row(ROI_W-1)*hy;
+        mat_y3 = MK_L.row(ROI_W*(ROI_H-1))*hy;
+    //    mat_y4 = MK_L.row(ROI_W*ROI_H-1)*hy;
+
+        srcTri[0] = cv::Point2f(static_cast<float>(X_L.at<ushort>(0, 0)),
+                                static_cast<float>(X_L.at<ushort>(0, 1)));
+        srcTri[1] = cv::Point2f(static_cast<float>(X_L.at<ushort>(ROI_W-1, 0)),
+                                static_cast<float>(X_L.at<ushort>(ROI_W-1, 1)));
+        srcTri[2] = cv::Point2f(static_cast<float>(X_L.at<ushort>(ROI_W*(ROI_H-1), 0)),
+                                static_cast<float>(X_L.at<ushort>(ROI_W*(ROI_H-1), 1)));
+//    srcTri[3] = cv::Point2f(static_cast<float>(X_L.at<ushort>(ROI_W*ROI_H-1, 0)),
+//                                static_cast<float>(X_L.at<ushort>(ROI_W*ROI_H-1, 1)));
+    } else {
+        mat_x1 = MK_R.row(0)*hx;
+        mat_x2 = MK_R.row(ROI_W-1)*hx;
+        mat_x3 = MK_R.row(ROI_W*(ROI_H-1))*hx;
+    //    mat_x4 = MK_R.row(ROI_W*ROI_H-1)*hx;
+        mat_y1 = MK_R.row(0)*hy;
+        mat_y2 = MK_R.row(ROI_W-1)*hy;
+        mat_y3 = MK_R.row(ROI_W*(ROI_H-1))*hy;
+    //    mat_y4 = MK_R.row(ROI_W*ROI_H-1)*hy;
+
+        srcTri[0] = cv::Point2f(static_cast<float>(X_R.at<ushort>(0, 0)),
+                                static_cast<float>(X_R.at<ushort>(0, 1)));
+        srcTri[1] = cv::Point2f(static_cast<float>(X_R.at<ushort>(ROI_W-1, 0)),
+                                static_cast<float>(X_R.at<ushort>(ROI_W-1, 1)));
+        srcTri[2] = cv::Point2f(static_cast<float>(X_R.at<ushort>(ROI_W*(ROI_H-1), 0)),
+                                static_cast<float>(X_R.at<ushort>(ROI_W*(ROI_H-1), 1)));
+    //    srcTri[3] = cv::Point2f(static_cast<float>(X_R.at<ushort>(ROI_W*ROI_H-1, 0),
+//                                static_cast<float>(X_R.at<ushort>(ROI_W*ROI_H-1, 1)));
+    }
+
+    dstTri[0] = cv::Point2f(static_cast<float>(x1), static_cast<float>(y1));
+    dstTri[1] = cv::Point2f(static_cast<float>(x2), static_cast<float>(y2));
+    dstTri[2] = cv::Point2f(static_cast<float>(x3), static_cast<float>(y3));
+//    dstTri[3] = cv::Point2f(static_cast<float>(x4), static_cast<float>(y4));
+//    std::cout << dstTri[0] << " " << dstTri[1] << " " << dstTri[2] << std::endl;
+
+    warp_mat_inv = cv::getAffineTransform(dstTri, srcTri);
+//    warp_mat_inv = cv::getPerspectiveTransform(dstTri, srcTri);
+    cv::warpAffine(image, image, warp_mat_inv, image.size());
+//    cv::warpPerspective(image, image, warp_mat_inv, image.size());
+}
+
+
+int MatchFeatures(cv::Mat left, cv::Mat right) {
+    cv::Point2f point1;
+    cv::Point2f point2;
+    int found_features;
+    //-- Step 1: Detect the keypoints using SURF Detector, compute the descriptors
+    int minHessian = 400;
+    cv::Ptr<cv::xfeatures2d::SURF> detector = cv::xfeatures2d::SURF::create();
+    detector->setHessianThreshold(minHessian);
+    std::vector<cv::KeyPoint> keypoints_1, keypoints_2;
+    cv::Mat descriptors_1, descriptors_2;
+    detector->detectAndCompute(left,  cv::Mat(), keypoints_1, descriptors_1);
+    detector->detectAndCompute(right, cv::Mat(), keypoints_2, descriptors_2);
+
+    //-- Step 2: Matching descriptor vectors using FLANN matcher
+    cv::FlannBasedMatcher matcher;
+    std::vector<cv::DMatch> matches;
+    matcher.match(descriptors_1, descriptors_2, matches);
+    double max_dist = 0; double min_dist = 100;
+    //-- Quick calculation of max and min distances between keypoints
+    for (int i = 0; i < descriptors_1.rows; i++) {
+        double dist = matches[i].distance;
+        if (dist < min_dist) min_dist = dist;
+        if (dist > max_dist) max_dist = dist;
+    }
+//    printf("-- Max dist : %f \n", max_dist );
+//    printf("-- Min dist : %f \n", min_dist );
+    //-- Draw only "good" matches (i.e. whose distance is less than 2*min_dist,
+    //-- or a small arbitary value ( 0.02 ) in the event that min_dist is very
+    //-- small)
+    //-- PS.- radiusMatch can also be used here.
+    std::vector<cv::DMatch> good_matches;
+    for (int i = 0; i < descriptors_1.rows; i++) {
+        if (matches[i].distance <= std::max(2*min_dist, 0.02))
+            good_matches.push_back(matches[i]);
+    }
+    //-- Draw only "good" matches
+    cv::Mat img_matches;
+    drawMatches(left, keypoints_1, right, keypoints_2, good_matches, img_matches,
+                cv::Scalar::all(-1), cv::Scalar::all(-1),
+                 std::vector<char>(), cv::DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
+    found_features = static_cast<int>(good_matches.size());
+    for (int i = 0; i < static_cast<int>(good_matches.size()); i++) {
+//        printf("-- Good Match [%d] Keypoint 1: %d  -- Keypoint 2: %d  \n", i,
+//                            good_matches[i].queryIdx, good_matches[i].trainIdx);
+        point1 = keypoints_1[good_matches[i].queryIdx].pt;
+        point2 = keypoints_2[good_matches[i].trainIdx].pt;
+
+        // exclude duplicates
+        if (std::find(right_features.begin(), right_features.end(), point2) !=
+                                                            right_features.end()) {
+            found_features--;
+        } else {
+            left_features.push_back(point1);
+            right_features.push_back(point2);
+        }
+    }
+
+    // skip displaying
+    return found_features;
+
+    while (1) {
+        //-- Show detected matches
+        cv::imshow("Good Matches", img_matches);
+        if ((cv::waitKey(1) & 0xFF) == 27) {
+            cv::destroyWindow("Good Matches");
+            std::cout << "ESC key pressed by user" << std::endl;
+            return static_cast<int>(good_matches.size());
+        }
+    }
+}
+
+cv::Mat LoadParameters(std::string path, std::string mat) {
+    cv::Mat calib_mat;
+    cv::FileStorage fs(path, cv::FileStorage::READ);
+    fs[mat] >> calib_mat;
+    return calib_mat;
+}
