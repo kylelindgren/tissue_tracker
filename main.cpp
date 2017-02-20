@@ -11,6 +11,7 @@
 int main(void) {
     cv::Mat frame_0_color_L, frame_0_L, frame_comp_L, gradx_comp_L, grady_comp_L;
     cv::Mat frame_0_color_R, frame_0_R, frame_comp_R, gradx_comp_R, grady_comp_R;
+    cv::Mat frame_0_color_L_dist, frame_0_color_R_dist;
     cv::Mat calib_mat_L, dist_coef_L, proj_mat_L;
     cv::Mat calib_mat_R, dist_coef_R, proj_mat_R;
     cv::Mat frame_roi;
@@ -45,20 +46,8 @@ int main(void) {
                               CV_FOURCC('H', '2', '6', '4'), 120,
                               cv::Size(IMWIDTH*3, IMHEIGHT), false);
 
-    if (!(cap_L.isOpened() && cap_R.isOpened())) {  // if not success, exit program
-        std::cout << "Cannot open the video cameras" << std::endl;
-        return -1;
-    }
-    // take off first few frames to allow auto settings to settle
-    bool bSuccess_L, bSuccess_R;
-    for (int i = 1; i < 180; i++) {
-        bSuccess_L = cap_L.read(frame_0_color_L);
-        bSuccess_R = cap_R.read(frame_0_color_R);
-        if (!(bSuccess_L && bSuccess_R)) {  // if camera fails to capture, exit
-            std::cout << "Cannot read a frame from video streams" << std::endl;
-            return -1;
-        }
-    }
+    cv::Mat rectif_mat_L, rectif_mat_R;
+    cv::Mat E, F, R, T;
 
     // load camera parameters
     std::string yaml_directory = "/home/kylelindgren/cpp_ws/yamls/";
@@ -75,6 +64,48 @@ int main(void) {
     proj_mat_R  = mc::LoadParameters(yaml_directory +
                                      "right_close_5mm_squares.yaml", "projection_matrix");
 
+    calib_mat_L = mc::LoadParameters(yaml_directory + "opencv_calib.yaml", "M1");
+    calib_mat_R = mc::LoadParameters(yaml_directory + "opencv_calib.yaml", "M2");
+    dist_coef_L = mc::LoadParameters(yaml_directory + "opencv_calib.yaml", "D1");
+    dist_coef_R = mc::LoadParameters(yaml_directory + "opencv_calib.yaml", "D2");
+    E = mc::LoadParameters(yaml_directory + "opencv_calib.yaml", "E");
+    F = mc::LoadParameters(yaml_directory + "opencv_calib.yaml", "F");
+    R = mc::LoadParameters(yaml_directory + "opencv_calib.yaml", "R");
+    T = mc::LoadParameters(yaml_directory + "opencv_calib.yaml", "T");
+
+//    std::cout << calib_mat_L << std::endl << calib_mat_R << std::endl << dist_coef_L
+//              << std::endl << dist_coef_R << std::endl << E << std::endl << F
+//              << std::endl << R << std::endl << T << std::endl;
+
+    cv::Mat rot_rect_L, rot_rect_R, proj_rect_L, proj_rect_R, disp_to_depth;
+
+    cv::stereoRectify(calib_mat_L, dist_coef_L, calib_mat_R, dist_coef_R,
+                      cv::Size(IMWIDTH, IMHEIGHT), R, T, rot_rect_L, rot_rect_R,
+                      proj_rect_L, proj_rect_R, disp_to_depth);
+
+    cv::Mat cam1map1, cam1map2;
+    cv::Mat cam2map1, cam2map2;
+
+    cv::initUndistortRectifyMap(calib_mat_L, dist_coef_L, rot_rect_L, proj_rect_L,
+                                cv::Size(IMWIDTH, IMHEIGHT), CV_32FC1, cam1map1, cam1map2);
+    cv::initUndistortRectifyMap(calib_mat_R, dist_coef_R, rot_rect_R, proj_rect_R,
+                                cv::Size(IMWIDTH, IMHEIGHT), CV_32FC1, cam2map1, cam2map2);
+
+    if (!(cap_L.isOpened() && cap_R.isOpened())) {  // if not success, exit program
+        std::cout << "Cannot open the video cameras" << std::endl;
+        return -1;
+    }
+    // take off first few frames to allow auto settings to settle
+    bool bSuccess_L, bSuccess_R;
+    for (int i = 1; i < 180; i++) {
+        bSuccess_L = cap_L.read(frame_0_color_L_dist);
+        bSuccess_R = cap_R.read(frame_0_color_R_dist);
+        if (!(bSuccess_L && bSuccess_R)) {  // if camera fails to capture, exit
+            std::cout << "Cannot read a frame from video streams" << std::endl;
+            return -1;
+        }
+    }
+
     // compute inverse transpose of left calibration matrix for projection to 3D coord conversion
     cv::Mat C_inv_t = calib_mat_L.clone();
     C_inv_t.convertTo(C_inv_t, CV_32FC1);
@@ -82,9 +113,16 @@ int main(void) {
     C_inv_t = C_inv_t.t();
 //    std::cout << C_inv_t << std::endl;
 
+    cv::Mat frame_0_L_dist, frame_0_R_dist, frame_L_dist, frame_R_dist;
     // reference images and regions of interest (roi)
-    cv::cvtColor(frame_0_color_L, frame_0_L, cv::COLOR_BGR2GRAY);
-    cv::cvtColor(frame_0_color_R, frame_0_R, cv::COLOR_BGR2GRAY);
+    cv::cvtColor(frame_0_color_L_dist, frame_0_L_dist, cv::COLOR_BGR2GRAY);
+    cv::cvtColor(frame_0_color_R_dist, frame_0_R_dist, cv::COLOR_BGR2GRAY);
+//    cv::undistort(frame_0_L_dist, frame_0_L, calib_mat_L, dist_coef_L);
+//    cv::undistort(frame_0_R_dist, frame_0_R, calib_mat_R, dist_coef_R);
+    cv::remap(frame_0_L_dist, frame_0_L, cam1map1, cam1map2, cv::INTER_LINEAR);
+    cv::remap(frame_0_R_dist, frame_0_R, cam2map1, cam2map2, cv::INTER_LINEAR);
+    cv::remap(frame_0_color_L_dist, frame_0_color_L, cam1map1, cam1map2, cv::INTER_LINEAR);
+    cv::remap(frame_0_color_R_dist, frame_0_color_R, cam2map1, cam2map2, cv::INTER_LINEAR);
 
     frame_comp_L = frame_0_L.clone();
     frame_comp_R = frame_0_R.clone();
@@ -342,8 +380,10 @@ int main(void) {
             std::cout << "Cannot read a frame from video streams" << std::endl;
             break;
         }
-        cv::cvtColor(frame_color_L, frame_L, cv::COLOR_BGR2GRAY);
-        cv::cvtColor(frame_color_R, frame_R, cv::COLOR_BGR2GRAY);
+        cv::cvtColor(frame_color_L, frame_L_dist, cv::COLOR_BGR2GRAY);
+        cv::cvtColor(frame_color_R, frame_R_dist, cv::COLOR_BGR2GRAY);
+        cv::remap(frame_L_dist, frame_L, cam1map1, cam1map2, cv::INTER_LINEAR);
+        cv::remap(frame_R_dist, frame_R, cam2map1, cam2map2, cv::INTER_LINEAR);
 
         mc::ComputeExpectedImg(frame_0_L, frame_0_R, correction_L, correction_R,
                            expected_L, expected_R, n_bins, size_bins, &frame_comp_L, &frame_comp_R,
