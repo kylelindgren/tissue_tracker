@@ -150,15 +150,12 @@ int ComputeJointHistogram(int n_bins, int size_bins, float expected_L[], float e
                           float p_joint_L[], float p_joint_R[],
                           const cv::Mat frame_L, const cv::Mat frame_R,
                           const cv::Mat frame_0_L, const cv::Mat frame_0_R) {
-    int u, v, index_L, index_R, flag_error = 0, acc;
-
+    int u, v, index_L, index_R, flag_error = 0, acc = 0;
     float p_ref;
 
-    // zeroing p_joint and acc
+    // zeroing p_joint
     for (u = 0; u < n_bins*n_bins; u++)
         p_joint_L[u] = p_joint_R[u] = 0;
-
-    acc = 0;
 
     // computing p_joint between 'current_warp' and 'Template'
     for (u = 0; u < ROI_W; u++) {
@@ -186,12 +183,14 @@ int ComputeJointHistogram(int n_bins, int size_bins, float expected_L[], float e
             // calcula p_ref
             p_ref = 0;
 
-            for (v = 0; v <n_bins; v++)
+            // p_ref holds histogram sum for bin u
+            for (v = 0; v < n_bins; v++)
                 p_ref += p_joint_L[v + n_bins*u];
 
             // expected value
             expected_L[u] = 0;
 
+            // update expected with average value for bin u
             if (p_ref > 0) {
                 for (v = 0; v < n_bins; v++)
                     expected_L[u] += ((v+1)*p_joint_L[v + n_bins*u]/p_ref);
@@ -256,10 +255,10 @@ void ComputeExpectedImg(const cv::Mat frame_0_L, const cv::Mat frame_0_R,
         for (int u = 0; u < ROI_W; u++) {
             frame_comp_L->at<uchar>(v, u) = frame_0_L.at<uchar>(v, u) +
                     cvRound(correction_L[cvRound(static_cast<float>
-                                                 (frame_0_L.at<uchar>(v, u)/size_bins))]);
+                                                 (frame_0_L.at<uchar>(v, u))/size_bins)]);
             frame_comp_R->at<uchar>(v, u) = frame_0_R.at<uchar>(v, u) +
                     cvRound(correction_R[cvRound(static_cast<float>
-                                                 (frame_0_R.at<uchar>(v, u)/size_bins))]);
+                                                 (frame_0_R.at<uchar>(v, u))/size_bins)]);
         }
 
     // Re-computing Gradient

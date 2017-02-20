@@ -23,8 +23,8 @@ int main(void) {
     cv::Mat roi_proj = cv::Mat(PIXELS, 3, CV_32FC1), roi_3D = cv::Mat(PIXELS, 3, CV_32FC1);
 
     int n_bins = 256, size_bins = 1, roi_0x_L, roi_0y_L, roi_0x_R, roi_0y_R;
-    float correction_L[256], expected_L[256], p_joint_L[256*256];
-    float correction_R[256], expected_R[256], p_joint_R[256*256];
+    float correction_L[n_bins], expected_L[n_bins], p_joint_L[n_bins*n_bins];
+    float correction_R[n_bins], expected_R[n_bins], p_joint_R[n_bins*n_bins];
 //    float mu, mv, tu, tv;
     float focal;
 
@@ -453,7 +453,7 @@ int main(void) {
         } while (delta_h_L > delta && delta_h_R > delta && iter < 30);
 
         mc::ComputeJointHistogram(n_bins, size_bins, expected_L, expected_R, p_joint_L, p_joint_R,
-                              frame_L, frame_R, frame_0_L, frame_0_R);
+                                  frame_L, frame_R, frame_0_L, frame_0_R);
 
         // use TPS for depth or just pixel disparity from estimates roi x,y values?
         //        UpdateDepth(focal, h_depth, h_a_L, h_a_R);
