@@ -31,8 +31,8 @@ void CalcMXT(const cv::Mat h_0_L, const cv::Mat h_0_R, cv::Mat const frame_0_L,
     offx = X_R->at<ushort>(0, 0);
     offy = X_R->at<ushort>(0, 1);
     for (int r = 0; r < PIXELS; r++) {
-        x_pos = static_cast<int>(r%ROI_W)+offx;
-        y_pos = static_cast<int>(r/ROI_W)+offy;
+        x_pos = static_cast<int>(r%ROI_W) + offx;
+        y_pos = static_cast<int>(r/ROI_W) + offy;
         X_R->at<ushort>(r, 0) = x_pos;  // fill X and T
         X_R->at<ushort>(r, 1) = y_pos;
         T_R->at<float>(r, 0) = frame_0_R.at<uchar>(y_pos, x_pos);
