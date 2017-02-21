@@ -4,7 +4,7 @@
 #include "mainwindow.hpp"
 
 #define WRITE    1
-#define AUTO_SEL 0
+#define AUTO_SEL 1
 #define SHOW_METRICS 1
 
 
@@ -26,7 +26,7 @@ int main(void) {
     float correction_L[n_bins], expected_L[n_bins], p_joint_L[n_bins*n_bins];
     float correction_R[n_bins], expected_R[n_bins], p_joint_R[n_bins*n_bins];
 //    float mu, mv, tu, tv;
-    float focal;
+//    float focal;
 
     cv::Point2i center;
     center.x = -1; center.y = -1;
@@ -43,7 +43,7 @@ int main(void) {
     cv::VideoCapture cap_R(source_dir + "mc_src_vids/moving_heart_stereo_right_depth.avi");
     // output video file
     cv::VideoWriter cap_write(source_dir + "mc_out_vids/mc_stereo_ssim.avi",
-                              CV_FOURCC('H', '2', '6', '4'), 120,
+                              CV_FOURCC('H', '2', '6', '4'), 100,
                               cv::Size(IMWIDTH*3, IMHEIGHT), false);
 
     cv::Mat rectif_mat_L, rectif_mat_R;
@@ -136,8 +136,8 @@ int main(void) {
 
     // control point selection
     if (AUTO_SEL) {
-        center.x = 320;  // (315,256) for moving_heart, (258,250) for moving_heart_120
-        center.y = 200;  // 256
+        center.x = 215;  // (315,256) for moving_heart, (258,250) for moving_heart_120
+        center.y = 221;  // 256
         roi_0x_L = static_cast<int>(center.x-0.5*ROI_W);
         roi_0y_L = static_cast<int>(center.y-0.5*ROI_H);
         roi = cv::Rect(roi_0x_L, roi_0y_L, ROI_W, ROI_H);
@@ -202,7 +202,7 @@ int main(void) {
 //    mv = calib_mat_L.at<double>(1, 1) / FOCAL;
 //    tu = calib_mat_L.at<double>(0, 2) / mu;
 //    tv = calib_mat_L.at<double>(1, 2) / mv;
-    focal = calib_mat_L.at<double>(0, 0);
+//    focal = calib_mat_L.at<double>(0, 0);
     for (int i = 0; i < CP_NUM; i++) {
         // using control points from feature matching
         h_0_L.at<float>(i, 0)        = left_features[i].x + roi_0x_L;
@@ -369,6 +369,8 @@ int main(void) {
     cv::Mat mid_im(current_stable_im, cv::Rect(IMWIDTH, 0, IMWIDTH, IMHEIGHT));
     cv::Mat right_im(current_stable_im, cv::Rect(IMWIDTH*2, 0, IMWIDTH, IMHEIGHT));
 
+    double tot_iters = 0, tot_time = 0;
+
     std::cout << "Program starting..." << std::endl;
     while (1) {
         frame_num++;
@@ -438,8 +440,8 @@ int main(void) {
 
             dh_L = -2*J_inv_L*im_diff_L;
             dh_R = -2*J_inv_R*im_diff_R;
-            h_a_L = h_a_L + dh_L;
-            h_a_R = h_a_R + dh_R;
+            h_a_L = h_a_L + 2.1*dh_L;
+            h_a_R = h_a_R + 2.1*dh_R;
 
             iter++;
 
@@ -454,6 +456,8 @@ int main(void) {
 
         mc::ComputeJointHistogram(n_bins, size_bins, expected_L, expected_R, p_joint_L, p_joint_R,
                                   frame_L, frame_R, frame_0_L, frame_0_R);
+
+        clock_t end = clock();
 
         // use TPS for depth or just pixel disparity from estimates roi x,y values?
         //        UpdateDepth(focal, h_depth, h_a_L, h_a_R);
@@ -521,13 +525,16 @@ int main(void) {
         if (WRITE)
             cap_write.write(current_stable_im);
 
-        clock_t end = clock();
-
         std::cout << "exiting frame # " << frame_num << " after " << iter << " iterations and\t"
                   << static_cast<double>(end-begin)/CLOCKS_PER_SEC << " seconds" << std::endl;
 
-        if ((cv::waitKey(1) & 0xFF) == 27 || (cv::waitKey(1) & 0xFF) == 'q') {
+        tot_iters += iter;
+        tot_time  += static_cast<double>(end-begin)/CLOCKS_PER_SEC;
+        if ((cv::waitKey(1) & 0xFF) == 27 || (cv::waitKey(1) & 0xFF) == 'q' || frame_num == 1290) {
             std::cout << "Program ended by user." << std::endl;
+            std::cout << "Average iterations: " << tot_iters/frame_num << " after "
+                      << frame_num << " frames" << std::endl;
+            std::cout << "Average iters time: " << tot_time/frame_num << std::endl;
             break;
         }
     }
