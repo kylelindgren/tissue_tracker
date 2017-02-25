@@ -45,11 +45,10 @@ int main(void) {
     cv::VideoWriter cap_write(source_dir + "mc_out_vids/mc_stereo_ssim.avi",
                               CV_FOURCC('H', '2', '6', '4'), 100,
                               cv::Size(IMWIDTH*3, IMHEIGHT), false);
-    std::string file_name = source_dir + "/tissue_tracker" + "/frame_time.txt";
+    std::string file_name = source_dir + "/tissue_tracker" + "/cp_diff.txt";
     std::ofstream out(file_name.c_str());
 
 
-    cv::Mat rectif_mat_L, rectif_mat_R;
     cv::Mat E, F, R, T;
 
     // load camera parameters
@@ -383,6 +382,42 @@ int main(void) {
     h_a_L_old = h_0_L.clone();
     h_a_R_old = h_0_R.clone();
 
+    // hannaford controller
+    cv::Mat X_hat_L = cv::Mat::zeros(2*CP_NUM, 1, CV_32FC1);
+    cv::Mat X_hat_R = cv::Mat::zeros(2*CP_NUM, 1, CV_32FC1);
+    cv::Mat e_L = cv::Mat::zeros(2*CP_NUM, 1, CV_32FC1);
+    cv::Mat e_R = cv::Mat::zeros(2*CP_NUM, 1, CV_32FC1);
+    cv::Mat A_L = cv::Mat::zeros(3, 1, CV_32FC1);
+    cv::Mat A_R = cv::Mat::zeros(3, 1, CV_32FC1);
+    cv::Mat D_mat_L = cv::Mat::zeros(3, CP_NUM, CV_32FC1);
+    cv::Mat D_mat_R = cv::Mat::zeros(3, CP_NUM, CV_32FC1);
+    std::list<float> D_L[CP_NUM*2];
+    std::list<float> D_R[CP_NUM*2];
+    // initialize data vector with initial control point locations
+    for (int i = 0; i < 3; i++) {
+        D_L[0].push_front(h_0_L.at<float>(0, 0));
+        D_L[1].push_front(h_0_L.at<float>(1, 0));
+        D_L[2].push_front(h_0_L.at<float>(2, 0));
+        D_L[3].push_front(h_0_L.at<float>(3, 0));
+        D_R[0].push_front(h_0_R.at<float>(0, 0));
+        D_R[1].push_front(h_0_R.at<float>(1, 0));
+        D_R[2].push_front(h_0_R.at<float>(2, 0));
+        D_R[3].push_front(h_0_R.at<float>(3, 0));
+    }
+    // transfer D data from list to matrix
+    for (int j = 0; j < CP_NUM; j++) {
+        int i = 0;
+        for (auto &p : D_L[j]) {
+            D_mat_L.at<float>(i++, j) = p;
+        }
+        i = 0;
+        for (auto &p : D_R[j]) {
+            D_mat_R.at<float>(i++, j) = p;
+        }
+    }
+
+
+
     std::cout << "Program starting..." << std::endl;
     while (1) {
         frame_num++;
@@ -452,8 +487,9 @@ int main(void) {
 
             dh_L = -2*J_inv_L*im_diff_L;
             dh_R = -2*J_inv_R*im_diff_R;
-            h_a_L += 1*dh_L;
-            h_a_R += 1*dh_R;
+            h_a_L += 3*exp(-(static_cast<double>(iter)/6))*dh_L;
+            h_a_R += 3*exp(-(static_cast<double>(iter)/6))*dh_R;
+//            std::cout << iter << " " << 3*exp(-(static_cast<double>(iter)/4)) << std::endl;
 
 //            std::cout << dh_L(cv::Range(0, CP_NUM), cv::Range::all()) << std::endl;
 
@@ -470,40 +506,50 @@ int main(void) {
 //            std::cout << iter << "\t" << delta_h_L << std::endl;
         } while (delta_h_L > delta && delta_h_R > delta && iter < 30);
 
+        // compute error
+        e_L = h_a_L - X_hat_L;
+        e_R = h_a_R - X_hat_R;
+        // estimate error function gradient
+
+
+
         //// control updating
 
-        for (int i = 0; i < 2*CP_NUM; i++) {
-            cp_steps_L[i].push_front(h_a_L.at<float>(i, 0)
-                                     - h_a_L_old.at<float>(i, 0));
-            cp_steps_R[i].push_front(h_a_R.at<float>(i, 0)
-                                     - h_a_R_old.at<float>(i, 0));
-        }
-        if (frame_num > cp_steps) {
-            for (int i = 0; i < 2*CP_NUM; i++) {
-                cp_steps_L[i].pop_back();
-                cp_steps_R[i].pop_back();
-            }
-        }
+//        for (int i = 0; i < 2*CP_NUM; i++) {
+//            cp_steps_L[i].push_front(h_a_L.at<float>(i, 0)
+//                                     - h_a_L_old.at<float>(i, 0));
+//            cp_steps_R[i].push_front(h_a_R.at<float>(i, 0)
+//                                     - h_a_R_old.at<float>(i, 0));
+//        }
+//        if (frame_num > cp_steps) {
+//            for (int i = 0; i < 2*CP_NUM; i++) {
+//                cp_steps_L[i].pop_back();
+//                cp_steps_R[i].pop_back();
+//            }
+//            for (int i = 0; i < 2*CP_NUM; i++) {
+//                h_a_L.at<float>(i, 0) += std::accumulate(std::begin(cp_steps_L[i]),
+//                                                         std::end(cp_steps_L[i]), 0.0) / cp_steps;
+//                h_a_R.at<float>(i, 0) += std::accumulate(std::begin(cp_steps_R[i]),
+//                                                         std::end(cp_steps_R[i]), 0.0) / cp_steps;
+//            }
+//        }
 
-        for (int i = 0; i < 2*CP_NUM; i++) {
-            h_a_L.at<float>(i, 0) += std::accumulate(std::begin(cp_steps_L[i]),
-                                                     std::end(cp_steps_L[i]), 0.0) / cp_steps;
-            h_a_R.at<float>(i, 0) += std::accumulate(std::begin(cp_steps_R[i]),
-                                                     std::end(cp_steps_R[i]), 0.0) / cp_steps;
-        }
+////        for (int i = 0; i < 2*CP_NUM; i++) {
+////            h_a_L.at<float>(i, 0) += std::accumulate(std::begin(cp_steps_L[i]),
+////                                                     std::end(cp_steps_L[i]), 0.0) / cp_steps;
+////            h_a_R.at<float>(i, 0) += std::accumulate(std::begin(cp_steps_R[i]),
+////                                                     std::end(cp_steps_R[i]), 0.0) / cp_steps;
+////        }
 
-
-//        std::cout << dh_L_tot << std::endl << dh_R_tot << std::endl << std::endl;
-//        out << dh_L_tot.t() << " " << dh_R_tot.t() << "\n";
-        for (int j = 0; j < 2*CP_NUM; j++) {
-            out << h_a_L.at<float>(j, 0) - h_a_L_old.at<float>(j, 0) << " ";
-        }
-        for (int j = 0; j < 2*CP_NUM; j++) {
-            out << h_a_R.at<float>(j, 0) - h_a_R_old.at<float>(j, 0) << " ";
-        }
-        out << "\n";
-        h_a_L.copyTo(h_a_L_old);
-        h_a_R.copyTo(h_a_R_old);
+//        for (int j = 0; j < 2*CP_NUM; j++) {
+//            out << h_a_L.at<float>(j, 0) - h_a_L_old.at<float>(j, 0) << " ";
+//        }
+//        for (int j = 0; j < 2*CP_NUM; j++) {
+//            out << h_a_R.at<float>(j, 0) - h_a_R_old.at<float>(j, 0) << " ";
+//        }
+//        out << "\n";
+//        h_a_L.copyTo(h_a_L_old);
+//        h_a_R.copyTo(h_a_R_old);
 
         ////
 
