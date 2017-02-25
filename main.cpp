@@ -45,6 +45,9 @@ int main(void) {
     cv::VideoWriter cap_write(source_dir + "mc_out_vids/mc_stereo_ssim.avi",
                               CV_FOURCC('H', '2', '6', '4'), 100,
                               cv::Size(IMWIDTH*3, IMHEIGHT), false);
+    std::string file_name = source_dir + "/tissue_tracker" + "/frame_time.txt";
+    std::ofstream out(file_name.c_str());
+
 
     cv::Mat rectif_mat_L, rectif_mat_R;
     cv::Mat E, F, R, T;
@@ -347,9 +350,12 @@ int main(void) {
     int thickness = 1;
     int baseLine = 0;
     std::list<float> xl, yl, zl;
+    std::list<float> cp_steps_L[CP_NUM*2];
+    std::list<float> cp_steps_R[CP_NUM*2];
     float x, y, z;
     x = y = z = 0;
     int qsize = 30;
+    int cp_steps = 2;
 
     // ssim variables
     cv::String text_ssim_L, text_ssim_R;
@@ -370,6 +376,12 @@ int main(void) {
     cv::Mat right_im(current_stable_im, cv::Rect(IMWIDTH*2, 0, IMWIDTH, IMHEIGHT));
 
     double tot_iters = 0, tot_time = 0;
+    cv::Mat dh_L_tot = cv::Mat::zeros(2*CP_NUM, 1, CV_32FC1);
+    cv::Mat dh_R_tot = cv::Mat::zeros(2*CP_NUM, 1, CV_32FC1);
+    cv::Mat h_a_L_old = cv::Mat::zeros(CP_NUM*2, 1, CV_32FC1);
+    cv::Mat h_a_R_old = cv::Mat::zeros(CP_NUM*2, 1, CV_32FC1);
+    h_a_L_old = h_0_L.clone();
+    h_a_R_old = h_0_R.clone();
 
     std::cout << "Program starting..." << std::endl;
     while (1) {
@@ -440,19 +452,60 @@ int main(void) {
 
             dh_L = -2*J_inv_L*im_diff_L;
             dh_R = -2*J_inv_R*im_diff_R;
-            h_a_L = h_a_L + 2.1*dh_L;
-            h_a_R = h_a_R + 2.1*dh_R;
+            h_a_L += 1*dh_L;
+            h_a_R += 1*dh_R;
+
+//            std::cout << dh_L(cv::Range(0, CP_NUM), cv::Range::all()) << std::endl;
+
+            dh_L_tot += dh_L;
+            dh_R_tot += dh_R;
 
             iter++;
 
-            delta_h_L = 0;
-            delta_h_R = 0;
+            delta_h_L = delta_h_R = 0;
             for (int j = 0; j < CP_NUM*2; j++) {
                 delta_h_L += fabs(dh_L.at<float>(j, 0));
                 delta_h_R += fabs(dh_R.at<float>(j, 0));
             }
 //            std::cout << iter << "\t" << delta_h_L << std::endl;
         } while (delta_h_L > delta && delta_h_R > delta && iter < 30);
+
+        //// control updating
+
+        for (int i = 0; i < 2*CP_NUM; i++) {
+            cp_steps_L[i].push_front(h_a_L.at<float>(i, 0)
+                                     - h_a_L_old.at<float>(i, 0));
+            cp_steps_R[i].push_front(h_a_R.at<float>(i, 0)
+                                     - h_a_R_old.at<float>(i, 0));
+        }
+        if (frame_num > cp_steps) {
+            for (int i = 0; i < 2*CP_NUM; i++) {
+                cp_steps_L[i].pop_back();
+                cp_steps_R[i].pop_back();
+            }
+        }
+
+        for (int i = 0; i < 2*CP_NUM; i++) {
+            h_a_L.at<float>(i, 0) += std::accumulate(std::begin(cp_steps_L[i]),
+                                                     std::end(cp_steps_L[i]), 0.0) / cp_steps;
+            h_a_R.at<float>(i, 0) += std::accumulate(std::begin(cp_steps_R[i]),
+                                                     std::end(cp_steps_R[i]), 0.0) / cp_steps;
+        }
+
+
+//        std::cout << dh_L_tot << std::endl << dh_R_tot << std::endl << std::endl;
+//        out << dh_L_tot.t() << " " << dh_R_tot.t() << "\n";
+        for (int j = 0; j < 2*CP_NUM; j++) {
+            out << h_a_L.at<float>(j, 0) - h_a_L_old.at<float>(j, 0) << " ";
+        }
+        for (int j = 0; j < 2*CP_NUM; j++) {
+            out << h_a_R.at<float>(j, 0) - h_a_R_old.at<float>(j, 0) << " ";
+        }
+        out << "\n";
+        h_a_L.copyTo(h_a_L_old);
+        h_a_R.copyTo(h_a_R_old);
+
+        ////
 
         mc::ComputeJointHistogram(n_bins, size_bins, expected_L, expected_R, p_joint_L, p_joint_R,
                                   frame_L, frame_R, frame_0_L, frame_0_R);
@@ -535,6 +588,7 @@ int main(void) {
             std::cout << "Average iterations: " << tot_iters/frame_num << " after "
                       << frame_num << " frames" << std::endl;
             std::cout << "Average iters time: " << tot_time/frame_num << std::endl;
+            out.close();
             break;
         }
     }
