@@ -195,6 +195,10 @@ int main(void) {
     cv::Mat h_0_R(CP_NUM*2, 1, CV_32FC1);
     cv::Mat h_a_R(CP_NUM*2, 1, CV_32FC1);
     cv::Mat dh_R(CP_NUM*2, 1, CV_32FC1);
+    cv::Mat dh_old_L = cv::Mat::zeros(CP_NUM*2, 1, CV_32FC1);
+    cv::Mat dh_old_R = cv::Mat::zeros(CP_NUM*2, 1, CV_32FC1);
+    cv::Mat dh_sign_L(CP_NUM*2, 1, CV_32FC1);
+    cv::Mat dh_sign_R(CP_NUM*2, 1, CV_32FC1);
 
     cv::Mat h_depth(CP_NUM, 1, CV_32FC1);
 
@@ -383,9 +387,10 @@ int main(void) {
     h_a_R_old = h_0_R.clone();
 
     // hannaford controller
-    h_0_L = cv::Scalar(0);
-    h_0_R = cv::Scalar(0);
-    float lambda = 15.0, beta = 0.07;
+//    h_0_L = cv::Scalar(0);  // for testing against known functions
+//    h_0_R = cv::Scalar(0);
+    float lambda = 15.0, beta = 0.001;
+    float max_D_L = 0, max_D_R = 0, cp_step_size = 1;
     cv::Mat X_hat_L = cv::Mat::zeros(2*CP_NUM, 1, CV_32FC1);
     cv::Mat X_hat_R = cv::Mat::zeros(2*CP_NUM, 1, CV_32FC1);
     cv::Mat e_L = cv::Mat::zeros(2*CP_NUM, 1, CV_32FC1);
@@ -398,29 +403,55 @@ int main(void) {
     cv::Mat A_R = cv::Mat::zeros(3, 2*CP_NUM, CV_32FC1);
     cv::Mat D_mat_L = cv::Mat::zeros(3, 2*CP_NUM, CV_32FC1);
     cv::Mat D_mat_R = cv::Mat::zeros(3, 2*CP_NUM, CV_32FC1);
+    cv::Mat e_cp_L = cv::Mat::zeros(2*CP_NUM, 1, CV_32FC1);
+    cv::Mat e_cp_R = cv::Mat::zeros(2*CP_NUM, 1, CV_32FC1);
     std::list<float> D_L[CP_NUM*2];
     std::list<float> D_R[CP_NUM*2];
+    // for cp locations
     h_0_L.copyTo(X_hat_L);
     h_0_R.copyTo(X_hat_R);
+    // for cp step size
+    X_hat_L = cv::Scalar(1);
+    X_hat_R = cv::Scalar(1);
     // initialize data vector with initial control point locations
-    for (int i = 0; i < 3; i++) {
-        D_L[0].push_front(h_0_L.at<float>(0, 0));
-        D_L[1].push_front(h_0_L.at<float>(1, 0));
-        D_L[2].push_front(h_0_L.at<float>(2, 0));
-        D_L[3].push_front(h_0_L.at<float>(3, 0));
-        D_L[4].push_front(h_0_L.at<float>(4, 0));
-        D_L[5].push_front(h_0_L.at<float>(5, 0));
-        D_L[6].push_front(h_0_L.at<float>(6, 0));
-        D_L[7].push_front(h_0_L.at<float>(7, 0));
+//    for (int i = 0; i < 3; i++) {
+//        D_L[0].push_front(h_0_L.at<float>(0, 0));
+//        D_L[1].push_front(h_0_L.at<float>(1, 0));
+//        D_L[2].push_front(h_0_L.at<float>(2, 0));
+//        D_L[3].push_front(h_0_L.at<float>(3, 0));
+//        D_L[4].push_front(h_0_L.at<float>(4, 0));
+//        D_L[5].push_front(h_0_L.at<float>(5, 0));
+//        D_L[6].push_front(h_0_L.at<float>(6, 0));
+//        D_L[7].push_front(h_0_L.at<float>(7, 0));
 
-        D_R[0].push_front(h_0_R.at<float>(0, 0));
-        D_R[1].push_front(h_0_R.at<float>(1, 0));
-        D_R[2].push_front(h_0_R.at<float>(2, 0));
-        D_R[3].push_front(h_0_R.at<float>(3, 0));
-        D_R[4].push_front(h_0_R.at<float>(4, 0));
-        D_R[5].push_front(h_0_R.at<float>(5, 0));
-        D_R[6].push_front(h_0_R.at<float>(6, 0));
-        D_R[7].push_front(h_0_R.at<float>(7, 0));
+//        D_R[0].push_front(h_0_R.at<float>(0, 0));
+//        D_R[1].push_front(h_0_R.at<float>(1, 0));
+//        D_R[2].push_front(h_0_R.at<float>(2, 0));
+//        D_R[3].push_front(h_0_R.at<float>(3, 0));
+//        D_R[4].push_front(h_0_R.at<float>(4, 0));
+//        D_R[5].push_front(h_0_R.at<float>(5, 0));
+//        D_R[6].push_front(h_0_R.at<float>(6, 0));
+//        D_R[7].push_front(h_0_R.at<float>(7, 0));
+//    }
+    // initialize data vector with initial step sizes
+    for (int i = 0; i < 3; i++) {
+        D_L[0].push_front(cp_step_size);
+        D_L[1].push_front(cp_step_size);
+        D_L[2].push_front(cp_step_size);
+        D_L[3].push_front(cp_step_size);
+        D_L[4].push_front(cp_step_size);
+        D_L[5].push_front(cp_step_size);
+        D_L[6].push_front(cp_step_size);
+        D_L[7].push_front(cp_step_size);
+
+        D_R[0].push_front(cp_step_size);
+        D_R[1].push_front(cp_step_size);
+        D_R[2].push_front(cp_step_size);
+        D_R[3].push_front(cp_step_size);
+        D_R[4].push_front(cp_step_size);
+        D_R[5].push_front(cp_step_size);
+        D_R[6].push_front(cp_step_size);
+        D_R[7].push_front(cp_step_size);
     }
     // convert D from list to mat
     for (int j = 0; j < CP_NUM; j++) {
@@ -435,10 +466,10 @@ int main(void) {
     }
 
     for (int i = 0; i < 2*CP_NUM; i++) {
-        A_L.at<float>(0, i) = 1.3;
-        A_L.at<float>(1, i) = -0.4;
-        A_R.at<float>(0, i) = 1.3;
-        A_R.at<float>(1, i) = -0.4;
+        A_L.at<float>(0, i) = 1.0;
+        A_L.at<float>(1, i) = -0.0;
+        A_R.at<float>(0, i) = 1.0;
+        A_R.at<float>(1, i) = -0.0;
     }
 
 
@@ -474,6 +505,8 @@ int main(void) {
 
         dh_L = cv::Scalar(0);
         dh_R = cv::Scalar(0);
+        e_cp_L = cv::Scalar(0);
+        e_cp_R = cv::Scalar(0);
         iter = 0;
         do {
             mapx_L = MK_L*h_a_L(cv::Range(0, CP_NUM), cv::Range::all());
@@ -511,14 +544,22 @@ int main(void) {
 
             dh_L = -2*J_inv_L*im_diff_L;
             dh_R = -2*J_inv_R*im_diff_R;
-            h_a_L += 1*dh_L;
-            h_a_R += 1*dh_R;
+            h_a_L += X_hat_L.mul(dh_L);
+            h_a_R += X_hat_R.mul(dh_R);
+            // find dh switchbacks
+            dh_sign_L = dh_L.mul(dh_old_L);
+            dh_sign_R = dh_R.mul(dh_old_R);
+            for (int i = 0; i < CP_NUM*2; i++) {
+                if (dh_sign_L.at<float>(i, 0) < 0)
+                    e_cp_L.at<float>(i, 0)++;
+                if (dh_sign_R.at<float>(i, 0) < 0)
+                    e_cp_R.at<float>(i, 0)++;
+            }
+            dh_L.copyTo(dh_old_L);
+            dh_R.copyTo(dh_old_R);
 //            std::cout << iter << " " << 3*exp(-(static_cast<double>(iter)/4)) << std::endl;
 
 //            std::cout << dh_L(cv::Range(0, CP_NUM), cv::Range::all()) << std::endl;
-
-            dh_L_tot += dh_L;
-            dh_R_tot += dh_R;
 
             iter++;
 
@@ -532,11 +573,21 @@ int main(void) {
         } while (delta_h_L > delta && delta_h_R > delta && iter < 30);
 
 
-        for (int i = 0; i < 2*CP_NUM; i++) {
-            h_a_L.at<float>(i, 0) = sin(static_cast<float>(frame_num)/50);
-            h_a_R.at<float>(i, 0) = sin(static_cast<float>(frame_num)/50);
-        }
-        std::cout << "h_a_L(0, 0): " << h_a_L.at<float>(0, 0) << std::endl;
+        // testing controller with known functions
+//        for (int i = 0; i < 2*CP_NUM; i++) {
+            // lambda = 15, beta = 0.7, A += beta*G, A0 = 1, A1 = 0, => w/o G normalizing
+            // lambda = 15, beta = <1, A += beta*G, A0 = 1, A1 = 0, => with G normalizing
+//            h_a_L.at<float>(i, 0) = 1*sin(static_cast<float>(frame_num)/50);
+//            h_a_R.at<float>(i, 0) = 1*sin(static_cast<float>(frame_num)/50);
+            // lambda = 15, beta = 0.001, A += beta*G, A0 = 1, A1 = 0, => with G normalizing
+//            h_a_L.at<float>(i, 0) = frame_num*1;
+//            h_a_R.at<float>(i, 0) = frame_num*1;
+//        }
+//        std::cout << "h_a_L(0, 0): " << h_a_L.at<float>(0, 0) << std::endl;
+        ///
+        /// controller updating cp point locations
+        ///
+/*
         // compute error
         e_L = h_a_L - X_hat_L;
         e_R = h_a_R - X_hat_R;
@@ -544,15 +595,29 @@ int main(void) {
         std::cout << "D_L:\n" << D_mat_L.col(0) << std::endl;
         // estimate error function gradient
         for (int i = 0; i < 2*CP_NUM; i++) {
-            G_L.col(i) = exp(-1/lambda)*G_L_old.col(i) + e_L.at<float>(i, 0)*D_mat_L.col(i)/lambda;
-            G_R.col(i) = exp(-1/lambda)*G_R_old.col(i) + e_R.at<float>(i, 0)*D_mat_R.col(i)/lambda;
+            max_D_L = fabs(D_mat_L.at<float>(0, i));
+            max_D_R = fabs(D_mat_R.at<float>(0, i));
+            if (!max_D_L) max_D_L = 1;
+            if (!max_D_R) max_D_R = 1;
+            for (int j = 1; j < 3; j++) {
+                if (fabs(D_mat_L.at<float>(j, i)) > max_D_L)
+                    max_D_L = fabs(D_mat_L.at<float>(j, i));
+                if (fabs(D_mat_R.at<float>(j, i)) > max_D_R)
+                    max_D_R = fabs(D_mat_R.at<float>(j, i));
+            }
+            G_L.col(i) = exp(-1/lambda)*G_L_old.col(i) +
+                    e_L.at<float>(i, 0)*(D_mat_L.col(i)/lambda)/max_D_L;
+            G_R.col(i) = exp(-1/lambda)*G_R_old.col(i) +
+                    e_R.at<float>(i, 0)*(D_mat_R.col(i)/lambda)/max_D_R;
         }
+//        std::cout << exp(-1/lambda)*G_L_old.col(0) << std::endl;
+//        std::cout << e_L.at<float>(0, 0)*D_mat_L.col(0)/lambda << std::endl;
         G_L.copyTo(G_L_old);
         G_R.copyTo(G_R_old);
         // adapt prediction coefficients
         for (int i = 0; i < 2*CP_NUM; i++) {
-            A_L.col(i) -= beta*G_L.col(i);
-            A_R.col(i) -= beta*G_R.col(i);
+            A_L.col(i) += beta*G_L.col(i);
+            A_R.col(i) += beta*G_R.col(i);
         }
         std::cout << "A_L col 0:\n" << A_L.col(0) << std::endl;
         std::cout << "G_L col 0:\n" << G_L.col(0) << std::endl;
@@ -582,8 +647,70 @@ int main(void) {
         X_hat_L.copyTo(h_a_L);
         X_hat_R.copyTo(h_a_R);
         std::cout << std::endl;
-//        std::cout << X_hat_L << " " << X_hat_R << std::endl;
+//*/
 
+        ///
+        /// controller updating cp step size
+        ///
+///*
+        // compute error
+        // e_cp_L/R computed in iter loop
+        std::cout << "e_cp_L.col(0):\n" << e_cp_L.col(0) << std::endl;
+//        std::cout << "D_L:\n" << D_mat_L.col(0) << std::endl;
+        // estimate error function gradient
+//        for (int i = 0; i < 2*CP_NUM; i++) {
+//            max_D_L = fabs(D_mat_L.at<float>(0, i));
+//            max_D_R = fabs(D_mat_R.at<float>(0, i));
+//            if (!max_D_L) max_D_L = 1;
+//            if (!max_D_R) max_D_R = 1;
+//            for (int j = 1; j < 3; j++) {
+//                if (fabs(D_mat_L.at<float>(j, i)) > max_D_L)
+//                    max_D_L = fabs(D_mat_L.at<float>(j, i));
+//                if (fabs(D_mat_R.at<float>(j, i)) > max_D_R)
+//                    max_D_R = fabs(D_mat_R.at<float>(j, i));
+//            }
+//            G_L.col(i) = exp(-1/lambda)*G_L_old.col(i) +
+//                    e_cp_L.at<float>(i, 0)*(D_mat_L.col(i)/lambda)/max_D_L;
+//            G_R.col(i) = exp(-1/lambda)*G_R_old.col(i) +
+//                    e_cp_R.at<float>(i, 0)*(D_mat_R.col(i)/lambda)/max_D_R;
+//        }
+////        std::cout << exp(-1/lambda)*G_L_old.col(0) << std::endl;
+////        std::cout << e_L.at<float>(0, 0)*D_mat_L.col(0)/lambda << std::endl;
+//        G_L.copyTo(G_L_old);
+//        G_R.copyTo(G_R_old);
+//        // adapt prediction coefficients
+//        for (int i = 0; i < 2*CP_NUM; i++) {
+//            A_L.col(i) += beta*G_L.col(i);
+//            A_R.col(i) += beta*G_R.col(i);
+//        }
+////        std::cout << "A_L col 0:\n" << A_L.col(0) << std::endl;
+////        std::cout << "G_L col 0:\n" << G_L.col(0) << std::endl;
+////         update prediction data
+//        for (int i = 0; i < 2*CP_NUM; i++) {
+//            D_L[i].push_front(X_hat_L.at<float>(i, 0));
+//            D_L[i].pop_back();
+//            D_R[i].push_front(X_hat_R.at<float>(i, 0));
+//            D_R[i].pop_back();
+//        } // convert D from list to mat
+//        for (int j = 0; j < 2*CP_NUM; j++) {
+//            int i = 0;
+//            for (auto &p : D_L[j]) {
+//                D_mat_L.at<float>(i++, j) = p;
+//            }
+//            i = 0;
+//            for (auto &p : D_R[j]) {
+//                D_mat_R.at<float>(i++, j) = p;
+//            }
+//        }
+        // compute new predictor
+        for (int i = 0; i < 2*CP_NUM; i++) {
+//            X_hat_L.row(i) = A_L.col(i).t()*D_mat_L.col(i);
+//            X_hat_R.row(i) = A_R.col(i).t()*D_mat_R.col(i);
+            X_hat_L.at<float>(i, 0) -= (e_cp_L.at<float>(i, 0) - 1) / 20;
+            X_hat_R.at<float>(i, 0) -= (e_cp_R.at<float>(i, 0) - 1) / 20;
+        }
+        std::cout << std::endl;
+//*/
 
         //// control updating
 
