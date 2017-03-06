@@ -3,8 +3,8 @@
 #include "ssim.hpp"
 #include "mainwindow.hpp"
 
-#define WRITE    1
-#define AUTO_SEL 1
+#define WRITE    0
+#define AUTO_SEL 0
 #define SHOW_METRICS 1
 
 
@@ -39,13 +39,17 @@ int main(void) {
     //    VideoCapture cap_R(2); // open the video camera no.
     //    VideoCapture cap_L("/home/kylelindgren/cpp_ws/mc_src_vids/moving_heart_stereo_L.avi");
     //    VideoCapture cap_R("/home/kylelindgren/cpp_ws/mc_src_vids/moving_heart_stereo_R.avi");
-    cv::VideoCapture cap_L(source_dir + "mc_src_vids/moving_heart_stereo_left_depth.avi");
-    cv::VideoCapture cap_R(source_dir + "mc_src_vids/moving_heart_stereo_right_depth.avi");
+//    cv::VideoCapture cap_L(source_dir + "mc_src_vids/moving_heart_stereo_left_depth.avi");
+//    cv::VideoCapture cap_R(source_dir + "mc_src_vids/moving_heart_stereo_right_depth.avi");
+    cv::VideoCapture cap_L(source_dir +
+                           "depth_test_vids/Feb_6/12:15:06_stereo_data/stereo_raw_L_X300_30.avi");
+    cv::VideoCapture cap_R(source_dir +
+                           "depth_test_vids/Feb_6/12:15:06_stereo_data/stereo_raw_R_X300_30.avi");
     // output video file
     cv::VideoWriter cap_write(source_dir + "mc_out_vids/mc_stereo_ssim.avi",
                               CV_FOURCC('H', '2', '6', '4'), 100,
                               cv::Size(IMWIDTH*3, IMHEIGHT), false);
-    std::string file_name = source_dir + "/tissue_tracker" + "/cp_diff.txt";
+    std::string file_name = source_dir + "/tissue_tracker" + "/cp_step_x_oddframes.txt";
     std::ofstream out(file_name.c_str());
 
 
@@ -99,7 +103,7 @@ int main(void) {
     }
     // take off first few frames to allow auto settings to settle
     bool bSuccess_L, bSuccess_R;
-    for (int i = 1; i < 180; i++) {
+    for (int i = 1; i < 180; i++) {  // 180
         bSuccess_L = cap_L.read(frame_0_color_L_dist);
         bSuccess_R = cap_R.read(frame_0_color_R_dist);
         if (!(bSuccess_L && bSuccess_R)) {  // if camera fails to capture, exit
@@ -138,8 +142,8 @@ int main(void) {
 
     // control point selection
     if (AUTO_SEL) {
-        center.x = 215;  // (315,256) for moving_heart, (258,250) for moving_heart_120
-        center.y = 221;  // 256
+        center.x = 215;  // 215
+        center.y = 221;  // 221
         roi_0x_L = static_cast<int>(center.x-0.5*ROI_W);
         roi_0y_L = static_cast<int>(center.y-0.5*ROI_H);
         roi = cv::Rect(roi_0x_L, roi_0y_L, ROI_W, ROI_H);
@@ -199,6 +203,8 @@ int main(void) {
     cv::Mat dh_old_R = cv::Mat::zeros(CP_NUM*2, 1, CV_32FC1);
     cv::Mat dh_sign_L(CP_NUM*2, 1, CV_32FC1);
     cv::Mat dh_sign_R(CP_NUM*2, 1, CV_32FC1);
+    cv::Mat dh_diff_L(CP_NUM*2, 1, CV_32FC1);
+    cv::Mat dh_diff_R(CP_NUM*2, 1, CV_32FC1);
 
     cv::Mat h_depth(CP_NUM, 1, CV_32FC1);
 
@@ -480,6 +486,10 @@ int main(void) {
         clock_t begin = clock();
         bSuccess_L = cap_L.read(frame_color_L);  // read a new frame from video
         bSuccess_R = cap_R.read(frame_color_R);
+//        if (frame_num % 2 == 0) {
+        bSuccess_L = cap_L.read(frame_color_L);  // skip every other frame
+        bSuccess_R = cap_R.read(frame_color_R);
+//        }
         if (!(bSuccess_L && bSuccess_R)) {  // if not success, break loop
             std::cout << "Cannot read a frame from video streams" << std::endl;
             break;
@@ -507,59 +517,120 @@ int main(void) {
         dh_R = cv::Scalar(0);
         e_cp_L = cv::Scalar(0);
         e_cp_R = cv::Scalar(0);
+        delta_h_L = delta_h_R = 10;
         iter = 0;
         do {
-            mapx_L = MK_L*h_a_L(cv::Range(0, CP_NUM), cv::Range::all());
-            mapy_L = MK_L*h_a_L(cv::Range(CP_NUM, 2*CP_NUM), cv::Range::all());
-            mapx_R = MK_R*h_a_R(cv::Range(0, CP_NUM), cv::Range::all());
-            mapy_R = MK_R*h_a_R(cv::Range(CP_NUM, 2*CP_NUM), cv::Range::all());
-            cv::remap(frame_L, warped_L, mapx_L.reshape(1, ROI_H), mapy_L.reshape(1, ROI_H),
-                                                        cv::INTER_LINEAR, 0, cv::Scalar(0));
-            cv::remap(frame_R, warped_R, mapx_R.reshape(1, ROI_H), mapy_R.reshape(1, ROI_H),
-                                                        cv::INTER_LINEAR, 0, cv::Scalar(0));
-            // show warping each iteration
-/*
-            warped_L.copyTo(left_roi);
-            warped_R.copyTo(right_roi);
-            frame_L_roi.copyTo(mid_roi);
-            cv::imshow("warped left, roi, warped right", current_stable_roi);
-            cv::waitKey(1);
-//*/
+            // run left and right together, exit when both converge
+            /*
+//            mapx_L = MK_L*h_a_L(cv::Range(0, CP_NUM), cv::Range::all());
+//            mapy_L = MK_L*h_a_L(cv::Range(CP_NUM, 2*CP_NUM), cv::Range::all());
+//            mapx_R = MK_R*h_a_R(cv::Range(0, CP_NUM), cv::Range::all());
+//            mapy_R = MK_R*h_a_R(cv::Range(CP_NUM, 2*CP_NUM), cv::Range::all());
+//            cv::remap(frame_L, warped_L, mapx_L.reshape(1, ROI_H), mapy_L.reshape(1, ROI_H),
+//                                                        cv::INTER_LINEAR, 0, cv::Scalar(0));
+//            cv::remap(frame_R, warped_R, mapx_R.reshape(1, ROI_H), mapy_R.reshape(1, ROI_H),
+//                                                        cv::INTER_LINEAR, 0, cv::Scalar(0));
+//            // show warping each iteration
 
-            warped_L.convertTo(warped_L, CV_32FC1);
-            warped_R.convertTo(warped_R, CV_32FC1);
+//            warped_L.copyTo(left_roi);
+//            warped_R.copyTo(right_roi);
+//            frame_L_roi.copyTo(mid_roi);
+//            cv::imshow("warped left, roi, warped right", current_stable_roi);
+//            cv::waitKey(1);
 
-            I_L = warped_L.reshape(1, PIXELS);
-            I_R = warped_R.reshape(1, PIXELS);
 
-            mc::Jacobian(warped_L, MK_L, &J_i_L);
-            mc::Jacobian(warped_R, MK_R, &J_i_R);
+//            warped_L.convertTo(warped_L, CV_32FC1);
+//            warped_R.convertTo(warped_R, CV_32FC1);
 
-            J_2_L = J_i_L + J_0_L;
-            J_2_R = J_i_R + J_0_R;
-            J_inv_L = (J_2_L.t()*J_2_L).inv(CV_LU)*J_2_L.t();
-            J_inv_R = (J_2_R.t()*J_2_R).inv(CV_LU)*J_2_R.t();
-            im_diff_L = I_L - T_L;
-            im_diff_R = I_R - T_R;
+//            I_L = warped_L.reshape(1, PIXELS);
+//            I_R = warped_R.reshape(1, PIXELS);
 
-            dh_L = -2*J_inv_L*im_diff_L;
-            dh_R = -2*J_inv_R*im_diff_R;
-            h_a_L += X_hat_L.mul(dh_L);
-            h_a_R += X_hat_R.mul(dh_R);
-            // find dh switchbacks
-            dh_sign_L = dh_L.mul(dh_old_L);
-            dh_sign_R = dh_R.mul(dh_old_R);
-            for (int i = 0; i < CP_NUM*2; i++) {
-                if (dh_sign_L.at<float>(i, 0) < 0)
-                    e_cp_L.at<float>(i, 0)++;
-                if (dh_sign_R.at<float>(i, 0) < 0)
-                    e_cp_R.at<float>(i, 0)++;
-            }
-            dh_L.copyTo(dh_old_L);
-            dh_R.copyTo(dh_old_R);
-//            std::cout << iter << " " << 3*exp(-(static_cast<double>(iter)/4)) << std::endl;
+//            mc::Jacobian(warped_L, MK_L, &J_i_L);
+//            mc::Jacobian(warped_R, MK_R, &J_i_R);
+
+//            J_2_L = J_i_L + J_0_L;
+//            J_2_R = J_i_R + J_0_R;
+//            J_inv_L = (J_2_L.t()*J_2_L).inv(CV_LU)*J_2_L.t();
+//            J_inv_R = (J_2_R.t()*J_2_R).inv(CV_LU)*J_2_R.t();
+//            im_diff_L = I_L - T_L;
+//            im_diff_R = I_R - T_R;
+
+//            dh_L = -2*J_inv_L*im_diff_L;
+//            dh_R = -2*J_inv_R*im_diff_R;
+//            h_a_L += X_hat_L.mul(dh_L) * (exp(-(static_cast<double>(iter/2))) + 1);
+//            h_a_R += X_hat_R.mul(dh_R) * (exp(-(static_cast<double>(iter/2))) + 1);
+//            // find dh switchbacks
+//            dh_sign_L = dh_L.mul(dh_old_L);
+//            dh_sign_R = dh_R.mul(dh_old_R);
+//            for (int i = 0; i < CP_NUM*2; i++) {
+//                if (dh_sign_L.at<float>(i, 0) < 0)
+//                    e_cp_L.at<float>(i, 0)++;
+//                if (dh_sign_R.at<float>(i, 0) < 0)
+//                    e_cp_R.at<float>(i, 0)++;
+//            }
+//            dh_L.copyTo(dh_old_L);
+//            dh_R.copyTo(dh_old_R);
 
 //            std::cout << dh_L(cv::Range(0, CP_NUM), cv::Range::all()) << std::endl;
+            */
+
+            ///
+            /// try splitting up left and right iterations
+            ///
+
+            if (delta_h_L > delta) {
+                mapx_L = MK_L*h_a_L(cv::Range(0, CP_NUM), cv::Range::all());
+                mapy_L = MK_L*h_a_L(cv::Range(CP_NUM, 2*CP_NUM), cv::Range::all());
+                cv::remap(frame_L, warped_L, mapx_L.reshape(1, ROI_H), mapy_L.reshape(1, ROI_H),
+                                                            cv::INTER_LINEAR, 0, cv::Scalar(0));
+
+                warped_L.convertTo(warped_L, CV_32FC1);
+
+                I_L = warped_L.reshape(1, PIXELS);
+
+                mc::Jacobian(warped_L, MK_L, &J_i_L);
+
+                J_2_L = J_i_L + J_0_L;
+                J_inv_L = (J_2_L.t()*J_2_L).inv(CV_LU)*J_2_L.t();
+                im_diff_L = I_L - T_L;
+
+                dh_L = -2*J_inv_L*im_diff_L;
+                h_a_L += X_hat_L.mul(dh_L);  // * (exp(-(static_cast<double>(iter/2))) + 1);
+                // find dh switchbacks
+                dh_sign_L = dh_L.mul(dh_old_L);
+                for (int i = 0; i < CP_NUM*2; i++) {
+                    if (dh_sign_L.at<float>(i, 0) < 0)
+                        e_cp_L.at<float>(i, 0)++;
+                }
+                dh_L.copyTo(dh_old_L);
+            }
+
+            if (delta_h_R > delta) {
+                mapx_R = MK_R*h_a_R(cv::Range(0, CP_NUM), cv::Range::all());
+                mapy_R = MK_R*h_a_R(cv::Range(CP_NUM, 2*CP_NUM), cv::Range::all());
+                cv::remap(frame_R, warped_R, mapx_R.reshape(1, ROI_H), mapy_R.reshape(1, ROI_H),
+                                                            cv::INTER_LINEAR, 0, cv::Scalar(0));
+
+                warped_R.convertTo(warped_R, CV_32FC1);
+
+                I_R = warped_R.reshape(1, PIXELS);
+
+                mc::Jacobian(warped_R, MK_R, &J_i_R);
+
+                J_2_R = J_i_R + J_0_R;
+                J_inv_R = (J_2_R.t()*J_2_R).inv(CV_LU)*J_2_R.t();
+                im_diff_R = I_R - T_R;
+
+                dh_R = -2*J_inv_R*im_diff_R;
+                h_a_R += X_hat_R.mul(dh_R);  // * (exp(-(static_cast<double>(iter/2))) + 1);
+                // find dh switchbacks
+                dh_sign_R = dh_R.mul(dh_old_R);
+                for (int i = 0; i < CP_NUM*2; i++) {
+                    if (dh_sign_R.at<float>(i, 0) < 0)
+                        e_cp_R.at<float>(i, 0)++;
+                }
+                dh_R.copyTo(dh_old_R);
+            }
 
             iter++;
 
@@ -568,12 +639,13 @@ int main(void) {
                 delta_h_L += fabs(dh_L.at<float>(j, 0));
                 delta_h_R += fabs(dh_R.at<float>(j, 0));
             }
+//            std::cout << "dhl: " << delta_h_L << "\ndhr: " << delta_h_R << std::endl << std::endl;
 //            std::cout << iter << "\t" << delta_h_L << std::endl;
 
         } while (delta_h_L > delta && delta_h_R > delta && iter < 30);
 
 
-        // testing controller with known functions
+        // testing hannaford controller with known functions
 //        for (int i = 0; i < 2*CP_NUM; i++) {
             // lambda = 15, beta = 0.7, A += beta*G, A0 = 1, A1 = 0, => w/o G normalizing
             // lambda = 15, beta = <1, A += beta*G, A0 = 1, A1 = 0, => with G normalizing
@@ -652,10 +724,13 @@ int main(void) {
         ///
         /// controller updating cp step size
         ///
-///*
+/*
         // compute error
         // e_cp_L/R computed in iter loop
-        std::cout << "e_cp_L.col(0):\n" << e_cp_L.col(0) << std::endl;
+
+//        std::cout << "e_cp_L.col(0):\n" << e_cp_L.col(0) << std::endl;
+//        std::cout << "X_hat_L.col(0):\n" << X_hat_L.col(0) << std::endl;
+
 //        std::cout << "D_L:\n" << D_mat_L.col(0) << std::endl;
         // estimate error function gradient
 //        for (int i = 0; i < 2*CP_NUM; i++) {
@@ -703,13 +778,13 @@ int main(void) {
 //            }
 //        }
         // compute new predictor
-        for (int i = 0; i < 2*CP_NUM; i++) {
-//            X_hat_L.row(i) = A_L.col(i).t()*D_mat_L.col(i);
-//            X_hat_R.row(i) = A_R.col(i).t()*D_mat_R.col(i);
-            X_hat_L.at<float>(i, 0) -= (e_cp_L.at<float>(i, 0) - 1) / 20;
-            X_hat_R.at<float>(i, 0) -= (e_cp_R.at<float>(i, 0) - 1) / 20;
-        }
-        std::cout << std::endl;
+//        for (int i = 0; i < 2*CP_NUM; i++) {
+////            X_hat_L.row(i) = A_L.col(i).t()*D_mat_L.col(i);
+////            X_hat_R.row(i) = A_R.col(i).t()*D_mat_R.col(i);
+//            X_hat_L.at<float>(i, 0) -= (e_cp_L.at<float>(i, 0) - 1) / 30;
+//            X_hat_R.at<float>(i, 0) -= (e_cp_R.at<float>(i, 0) - 1) / 30;
+//        }
+//        std::cout << std::endl;
 //*/
 
         //// control updating
@@ -740,15 +815,28 @@ int main(void) {
 ////                                                     std::end(cp_steps_R[i]), 0.0) / cp_steps;
 ////        }
 
+        dh_diff_L = h_a_L - h_a_L_old;
+        dh_diff_R = h_a_R - h_a_R_old;
+        // control point pixel differences between frames (steps)
+        for (int j = 0; j < 2*CP_NUM; j++) {
+            out << h_a_L.at<float>(j, 0) - h_a_L_old.at<float>(j, 0) << " ";
+        }
+        for (int j = 0; j < 2*CP_NUM; j++) {
+            out << h_a_R.at<float>(j, 0) - h_a_R_old.at<float>(j, 0) << " ";
+        }
+        // control point locations
 //        for (int j = 0; j < 2*CP_NUM; j++) {
-//            out << h_a_L.at<float>(j, 0) - h_a_L_old.at<float>(j, 0) << " ";
+//            out << h_a_L.at<float>(j, 0) << " ";
 //        }
 //        for (int j = 0; j < 2*CP_NUM; j++) {
-//            out << h_a_R.at<float>(j, 0) - h_a_R_old.at<float>(j, 0) << " ";
+//            out << h_a_R.at<float>(j, 0) << " ";
 //        }
-//        out << "\n";
-//        h_a_L.copyTo(h_a_L_old);
-//        h_a_R.copyTo(h_a_R_old);
+        out << "\n";
+        h_a_L.copyTo(h_a_L_old);
+        h_a_R.copyTo(h_a_R_old);
+
+        h_a_L += dh_diff_L;
+        h_a_R += dh_diff_R;
 
         ////
 
@@ -828,7 +916,7 @@ int main(void) {
 
         tot_iters += iter;
         tot_time  += static_cast<double>(end-begin)/CLOCKS_PER_SEC;
-        if ((cv::waitKey(1) & 0xFF) == 27 || (cv::waitKey(1) & 0xFF) == 'q' || frame_num == 1290) {
+        if ((cv::waitKey(1) & 0xFF) == 27 || (cv::waitKey(1) & 0xFF) == 'q') {  //frame_num == 1290) {
             std::cout << "Program ended by user." << std::endl;
             std::cout << "Average iterations: " << tot_iters/frame_num << " after "
                       << frame_num << " frames" << std::endl;
