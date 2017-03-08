@@ -41,15 +41,19 @@ int main(void) {
     //    VideoCapture cap_R("/home/kylelindgren/cpp_ws/mc_src_vids/moving_heart_stereo_R.avi");
 //    cv::VideoCapture cap_L(source_dir + "mc_src_vids/moving_heart_stereo_left_depth.avi");
 //    cv::VideoCapture cap_R(source_dir + "mc_src_vids/moving_heart_stereo_right_depth.avi");
+//    cv::VideoCapture cap_L(source_dir +
+//                           "depth_test_vids/Mar_6/11:32:35_stereo_data/stereo_raw_L_300_x_60fps.avi");
+//    cv::VideoCapture cap_R(source_dir +
+//                           "depth_test_vids/Mar_6/11:32:35_stereo_data/stereo_raw_R_300_x_60fps.avi");
     cv::VideoCapture cap_L(source_dir +
-                           "depth_test_vids/Feb_6/12:15:06_stereo_data/stereo_raw_L_X300_30.avi");
+                           "depth_test_vids/Mar_6/11:34:49_stereo_data/stereo_raw_L_300_x_30fps.avi");
     cv::VideoCapture cap_R(source_dir +
-                           "depth_test_vids/Feb_6/12:15:06_stereo_data/stereo_raw_R_X300_30.avi");
+                           "depth_test_vids/Mar_6/11:34:49_stereo_data/stereo_raw_R_300_x_30fps.avi");
     // output video file
     cv::VideoWriter cap_write(source_dir + "mc_out_vids/mc_stereo_ssim.avi",
                               CV_FOURCC('H', '2', '6', '4'), 100,
                               cv::Size(IMWIDTH*3, IMHEIGHT), false);
-    std::string file_name = source_dir + "/tissue_tracker" + "/cp_step_x_oddframes.txt";
+    std::string file_name = source_dir + "/tissue_tracker" + "/cp_step_x_30fps.txt";
     std::ofstream out(file_name.c_str());
 
 
@@ -420,25 +424,27 @@ int main(void) {
     X_hat_L = cv::Scalar(1);
     X_hat_R = cv::Scalar(1);
     // initialize data vector with initial control point locations
-//    for (int i = 0; i < 3; i++) {
-//        D_L[0].push_front(h_0_L.at<float>(0, 0));
-//        D_L[1].push_front(h_0_L.at<float>(1, 0));
-//        D_L[2].push_front(h_0_L.at<float>(2, 0));
-//        D_L[3].push_front(h_0_L.at<float>(3, 0));
-//        D_L[4].push_front(h_0_L.at<float>(4, 0));
-//        D_L[5].push_front(h_0_L.at<float>(5, 0));
-//        D_L[6].push_front(h_0_L.at<float>(6, 0));
-//        D_L[7].push_front(h_0_L.at<float>(7, 0));
+    /*
+    for (int i = 0; i < 3; i++) {
+        D_L[0].push_front(h_0_L.at<float>(0, 0));
+        D_L[1].push_front(h_0_L.at<float>(1, 0));
+        D_L[2].push_front(h_0_L.at<float>(2, 0));
+        D_L[3].push_front(h_0_L.at<float>(3, 0));
+        D_L[4].push_front(h_0_L.at<float>(4, 0));
+        D_L[5].push_front(h_0_L.at<float>(5, 0));
+        D_L[6].push_front(h_0_L.at<float>(6, 0));
+        D_L[7].push_front(h_0_L.at<float>(7, 0));
 
-//        D_R[0].push_front(h_0_R.at<float>(0, 0));
-//        D_R[1].push_front(h_0_R.at<float>(1, 0));
-//        D_R[2].push_front(h_0_R.at<float>(2, 0));
-//        D_R[3].push_front(h_0_R.at<float>(3, 0));
-//        D_R[4].push_front(h_0_R.at<float>(4, 0));
-//        D_R[5].push_front(h_0_R.at<float>(5, 0));
-//        D_R[6].push_front(h_0_R.at<float>(6, 0));
-//        D_R[7].push_front(h_0_R.at<float>(7, 0));
-//    }
+        D_R[0].push_front(h_0_R.at<float>(0, 0));
+        D_R[1].push_front(h_0_R.at<float>(1, 0));
+        D_R[2].push_front(h_0_R.at<float>(2, 0));
+        D_R[3].push_front(h_0_R.at<float>(3, 0));
+        D_R[4].push_front(h_0_R.at<float>(4, 0));
+        D_R[5].push_front(h_0_R.at<float>(5, 0));
+        D_R[6].push_front(h_0_R.at<float>(6, 0));
+        D_R[7].push_front(h_0_R.at<float>(7, 0));
+    }
+    */
     // initialize data vector with initial step sizes
     for (int i = 0; i < 3; i++) {
         D_L[0].push_front(cp_step_size);
