@@ -61,6 +61,7 @@ int MatchFeatures(const cv::Mat left, const cv::Mat right, std::vector<cv::Point
                   std::vector<cv::Point2f> *right_features);
 cv::Mat LoadParameters(std::string path, std::string mat);
 double CalcDepth(double disp);
+void KalmanStepCP(cv::Mat *dh_diff_L, cv::Mat *dh_diff_R);
 
 }  // namespace mc
 

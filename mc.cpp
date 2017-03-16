@@ -605,5 +605,86 @@ double CalcDepth(double disp) {
     return -1.7775e-04*pow(disp, 3) + 0.0437*pow(disp, 2) + -4.7771*disp + 350.4368;
 }
 
+void KalmanStepCP(cv::Mat *dh_diff_L, cv::Mat *dh_diff_R) {
+    static bool first = true;
+    static float sigma_model = 1.0, sigma_meas = 0;
+    const int n = 4*CP_NUM, m = 2*CP_NUM;
+    static cv::Mat Xk_L = cv::Mat::zeros(n, 1, CV_32FC1),
+            Xk_L_= cv::Mat::zeros(n, 1, CV_32FC1),
+            F_L  = cv::Mat::zeros(n, n, CV_32FC1),
+            P_L  = cv::Mat::zeros(n, n, CV_32FC1),
+            P1_L = cv::Mat::zeros(n, n, CV_32FC1),
+            S_L  = cv::Mat::zeros(m, m, CV_32FC1),
+            QL  = cv::Mat::eye(n, n, CV_32FC1),
+            M_L  = cv::Mat::zeros(m, n, CV_32FC1),
+            R_L  = cv::Mat::eye(m, m, CV_32FC1) * pow(sigma_meas, 2),
+            K_L  = cv::Mat::zeros(n, m, CV_32FC1);
+    static cv::Mat Xk_R = cv::Mat::zeros(n, 1, CV_32FC1),
+            Xk_R_= cv::Mat::zeros(n, 1, CV_32FC1),
+            F_R  = cv::Mat::zeros(n, n, CV_32FC1),
+            P_R  = cv::Mat::zeros(n, n, CV_32FC1),
+            P1_R = cv::Mat::zeros(n, n, CV_32FC1),
+            S_R  = cv::Mat::zeros(m, m, CV_32FC1),
+            QR   = cv::Mat::eye(n, n, CV_32FC1),
+            M_R  = cv::Mat::zeros(m, n, CV_32FC1),
+            R_R  = cv::Mat::eye(m, m, CV_32FC1) * pow(sigma_meas, 2),
+            K_R  = cv::Mat::zeros(n, m, CV_32FC1);
+
+    if (first) {
+        first = false;
+        for (int i = 0; i < 2*CP_NUM; i++) {
+            P_L.at<float>(i*2, i*2) = pow(sigma_model, 2);
+            P_L.at<float>(i*2 + 1, i*2 + 1) = pow(sigma_model, 2);
+            M_L.at<float>(i, i*2) = 1.0;
+            Xk_L_.at<float>(i*2, 0) = dh_diff_L->at<float>(i, 0);
+            F_L.at<float>(i*2, i*2) = 1.0;
+            F_L.at<float>(i*2, i*2 + 1) = 1.0;
+            F_L.at<float>(i*2 + 1, i*2 + 1) = 1.0;
+
+            P_R.at<float>(i*2, i*2) = pow(sigma_model, 2);
+            P_R.at<float>(i*2 + 1, i*2 + 1) = pow(sigma_model, 2);
+            M_R.at<float>(i, i*2) = 1.0;
+            Xk_R_.at<float>(i*2, 0) = dh_diff_R->at<float>(i, 0);
+            F_R.at<float>(i*2, i*2) = 1.0;
+            F_R.at<float>(i*2, i*2 + 1) = 1.0;
+            F_R.at<float>(i*2 + 1, i*2 + 1) = 1.0;
+
+            if (i != 2*CP_NUM - 1) {
+                F_L.at<float>(i*2 + 1, i*2 + 2) = 1.0;
+                F_R.at<float>(i*2 + 1, i*2 + 2) = 1.0;
+            }
+        }
+    }
+//    std::cout << Xk_L_ << std::endl;
+//    std::cout << Xk_R_ << std::endl;
+//    std::cout << F_L << std::endl;
+
+    P1_L = F_L*P_L*F_L.t() + QL;
+//    std::cout << P1_L << std::endl;
+    S_L  = M_L*P1_L*M_L.t() + R_L;
+//    std::cout << S_L << std::endl;
+    K_L  = P1_L*M_L.t()*S_L.inv();
+//    std::cout << K_L << std::endl;
+    P_L  = P1_L - K_L*M_L*P1_L;
+//    std::cout << P_L << std::endl;
+    Xk_L = F_L*Xk_L_ + K_L*(*dh_diff_L - M_L*F_L*Xk_L_);
+//    std::cout << Xk_L << std::endl;
+    Xk_L.copyTo(Xk_L_);
+
+    P1_R = F_R*P_R*F_R.t() + QR;
+    S_R  = M_R*P1_R*M_R.t() + R_R;
+    K_R  = P1_R*M_R.t()*S_R.inv();
+    P_R  = P1_R - K_R*M_R*P1_R;
+    Xk_R = F_R*Xk_R_ + K_R*(*dh_diff_R - M_R*F_R*Xk_R_);
+    Xk_R.copyTo(Xk_R_);
+
+    for (int i = 0; i < 2*CP_NUM; i++) {
+        std::cout << dh_diff_L->at<float>(i, 0) - Xk_L.at<float>(i*2, 0) << std::endl;
+        dh_diff_L->at<float>(i, 0) = Xk_L.at<float>(i*2, 0);
+        dh_diff_R->at<float>(i, 0) = Xk_R.at<float>(i*2, 0);
+    }
+
+}
+
 
 }  // namespace mc
