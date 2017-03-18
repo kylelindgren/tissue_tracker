@@ -39,8 +39,10 @@ int main(void) {
     cv::Mat dh_old_R = cv::Mat::zeros(CP_NUM*2, 1, CV_32FC1);
     cv::Mat dh_sign_L(CP_NUM*2, 1, CV_32FC1);
     cv::Mat dh_sign_R(CP_NUM*2, 1, CV_32FC1);
-    cv::Mat dh_diff_L(CP_NUM*2, 1, CV_32FC1);
-    cv::Mat dh_diff_R(CP_NUM*2, 1, CV_32FC1);
+    cv::Mat dh_diff_L = cv::Mat::zeros(CP_NUM*2, 1, CV_32FC1);
+    cv::Mat dh_diff_R = cv::Mat::zeros(CP_NUM*2, 1, CV_32FC1);
+    cv::Mat dh_ddiff_L(CP_NUM*2, 1, CV_32FC1);
+    cv::Mat dh_ddiff_R(CP_NUM*2, 1, CV_32FC1);
 
     cv::Mat h_depth(CP_NUM, 1, CV_32FC1);
 
@@ -80,11 +82,12 @@ int main(void) {
                      "depth_test_vids/Mar_15/13:11:29_stereo_data/stereo_raw_L_300_x_10fps.avi");
     cv::VideoCapture cap_R(source_dir +
                      "depth_test_vids/Mar_15/13:11:29_stereo_data/stereo_raw_R_300_x_10fps.avi");
+    int end_frame = 540;
     // output video file
     cv::VideoWriter cap_write(source_dir + "mc_out_vids/mc_stereo_ssim.avi",
                               CV_FOURCC('H', '2', '6', '4'), 100,
                               cv::Size(IMWIDTH*3, IMHEIGHT), false);
-    std::string file_name = source_dir + "/tissue_tracker/cp_loc" + "/cp_step_x_10fps_.txt";
+    std::string file_name = source_dir + "/tissue_tracker/cp_loc" + "/cp_loc_rand_.txt";
     std::ofstream out(file_name.c_str());
 
     // load camera parameters
@@ -738,43 +741,50 @@ int main(void) {
 ////                                                     std::end(cp_steps_R[i]), 0.0) / cp_steps;
 ////        }
 
+
+        dh_ddiff_L = 2*(h_a_L - h_a_L_old) - dh_diff_L;
+        dh_ddiff_R = 2*(h_a_R - h_a_R_old) - dh_diff_R;
+
         dh_diff_L = h_a_L - h_a_L_old;
         dh_diff_R = h_a_R - h_a_R_old;
         // control point pixel differences between frames (steps)
-        for (int j = 0; j < 2*CP_NUM; j++) {
-            out << h_a_L.at<float>(j, 0) - h_a_L_old.at<float>(j, 0) << " ";
-        }
-        for (int j = 0; j < 2*CP_NUM; j++) {
-            out << h_a_R.at<float>(j, 0) - h_a_R_old.at<float>(j, 0) << " ";
-        }
+//        for (int j = 0; j < 2*CP_NUM; j++) {
+//            out << dh_diff_L.at<float>(j, 0) << " ";
+//        }
+//        for (int j = 0; j < 2*CP_NUM; j++) {
+//            out << dh_diff_R.at<float>(j, 0) << " ";
+//        }
         // control point locations
-//        for (int j = 0; j < 2*CP_NUM; j++) {
-//            out << h_a_L.at<float>(j, 0) << " ";
-//        }
-//        for (int j = 0; j < 2*CP_NUM; j++) {
-//            out << h_a_R.at<float>(j, 0) << " ";
-//        }
+        for (int j = 0; j < 2*CP_NUM; j++) {
+            out << h_a_L.at<float>(j, 0) << " ";
+        }
+        for (int j = 0; j < 2*CP_NUM; j++) {
+            out << h_a_R.at<float>(j, 0) << " ";
+        }
 
         // Kalman filter estimate for next cp iter step
-        mc::KalmanStepCP(&dh_diff_L, &dh_diff_R);
-        for (int j = 0; j < 2*CP_NUM; j++) {
-            out << dh_diff_L.at<float>(j, 0) << " ";
-        }
-        for (int j = 0; j < 2*CP_NUM; j++) {
-            out << dh_diff_R.at<float>(j, 0) << " ";
-        }
+//        mc::KalmanStepCP(&dh_ddiff_L, &dh_ddiff_R);
+//        for (int j = 0; j < 2*CP_NUM; j++) {
+//            out << dh_diff_L.at<float>(j, 0) << " ";
+//        }
+//        for (int j = 0; j < 2*CP_NUM; j++) {
+//            out << dh_diff_R.at<float>(j, 0) << " ";
+//        }
+
+//        h_a_L += dh_ddiff_L;
+//        h_a_R += dh_ddiff_R;
 
         h_a_L += dh_diff_L;
         h_a_R += dh_diff_R;
 
         // Kalman filter estimate for next cp iter location
-//        mc::KalmanStepCP(&h_a_L, &h_a_R);
-//        for (int j = 0; j < 2*CP_NUM; j++) {
-//            out << h_a_L.at<float>(j, 0) << " ";
-//        }
-//        for (int j = 0; j < 2*CP_NUM; j++) {
-//            out << h_a_R.at<float>(j, 0) << " ";
-//        }
+        mc::KalmanStepCP(&h_a_L, &h_a_R);
+        for (int j = 0; j < 2*CP_NUM; j++) {
+            out << h_a_L.at<float>(j, 0) << " ";
+        }
+        for (int j = 0; j < 2*CP_NUM; j++) {
+            out << h_a_R.at<float>(j, 0) << " ";
+        }
 
         out << "\n";
 
@@ -861,7 +871,8 @@ int main(void) {
 
         tot_iters += iter;
         tot_time  += static_cast<double>(end-begin)/CLOCKS_PER_SEC;
-        if ((cv::waitKey(1) & 0xFF) == 27 || (cv::waitKey(1) & 0xFF) == 'q' || frame_num == 540) {
+        if ((cv::waitKey(1) & 0xFF) == 27 || (cv::waitKey(1) & 0xFF) == 'q'
+                || frame_num == end_frame) {
             std::cout << "Program ended by user." << std::endl;
             std::cout << "Average iterations: " << tot_iters/frame_num << " after "
                       << frame_num << " frames" << std::endl;
