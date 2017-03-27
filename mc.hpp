@@ -14,7 +14,7 @@
 #include "opencv2/imgcodecs.hpp"
 #include "opencv2/xfeatures2d.hpp"
 #include "opencv2/calib3d.hpp"
-#include <armadillo>
+//#include <armadillo>
 
 #define CP_NUM   4
 #define IMWIDTH  640
@@ -61,7 +61,7 @@ int MatchFeatures(const cv::Mat left, const cv::Mat right, std::vector<cv::Point
                   std::vector<cv::Point2f> *right_features);
 cv::Mat LoadParameters(std::string path, std::string mat);
 double CalcDepth(double disp);
-void KalmanStepCP(cv::Mat *Z_L, cv::Mat *Z_R);
+void KalmanStepCP(cv::Mat *Z_L, cv::Mat *Z_R, float sigma_model, float sigma_meas);
 
 }  // namespace mc
 

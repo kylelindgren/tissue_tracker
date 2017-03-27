@@ -605,9 +605,8 @@ double CalcDepth(double disp) {
     return -1.7775e-04*pow(disp, 3) + 0.0437*pow(disp, 2) + -4.7771*disp + 350.4368;
 }
 
-void KalmanStepCP(cv::Mat *Z_L, cv::Mat *Z_R) {
+void KalmanStepCP(cv::Mat *Z_L, cv::Mat *Z_R, float sigma_model, float sigma_meas) {
     static bool first = true;
-    float sigma_model = 5.0, sigma_meas = 2.0;
     const int n = 4*CP_NUM, m = 2*CP_NUM;
     static cv::Mat Xk_L = cv::Mat::zeros(n, 1, CV_32FC1),
             Xk_L_= cv::Mat::zeros(n, 1, CV_32FC1),
@@ -615,7 +614,7 @@ void KalmanStepCP(cv::Mat *Z_L, cv::Mat *Z_R) {
             P_L  = cv::Mat::zeros(n, n, CV_32FC1),
             P_L_ = cv::Mat::zeros(n, n, CV_32FC1),
             S_L  = cv::Mat::zeros(m, m, CV_32FC1),
-            QL  = cv::Mat::eye(n, n, CV_32FC1),
+            QL   = cv::Mat::eye(n, n, CV_32FC1),
             M_L  = cv::Mat::zeros(m, n, CV_32FC1),
             R_L  = cv::Mat::eye(m, m, CV_32FC1) * pow(sigma_meas, 2),
             K_L  = cv::Mat::zeros(n, m, CV_32FC1);

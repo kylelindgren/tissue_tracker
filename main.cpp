@@ -31,9 +31,11 @@ int main(void) {
     // control point storage
     cv::Mat h_0_L(CP_NUM*2, 1, CV_32FC1);
     cv::Mat h_a_L(CP_NUM*2, 1, CV_32FC1);
+    cv::Mat h_a_L_old_conv(CP_NUM*2, 1, CV_32FC1);
     cv::Mat dh_L(CP_NUM*2, 1, CV_32FC1);
     cv::Mat h_0_R(CP_NUM*2, 1, CV_32FC1);
     cv::Mat h_a_R(CP_NUM*2, 1, CV_32FC1);
+    cv::Mat h_a_R_old_conv(CP_NUM*2, 1, CV_32FC1);
     cv::Mat dh_R(CP_NUM*2, 1, CV_32FC1);
     cv::Mat dh_old_L = cv::Mat::zeros(CP_NUM*2, 1, CV_32FC1);
     cv::Mat dh_old_R = cv::Mat::zeros(CP_NUM*2, 1, CV_32FC1);
@@ -41,8 +43,8 @@ int main(void) {
     cv::Mat dh_sign_R(CP_NUM*2, 1, CV_32FC1);
     cv::Mat dh_diff_L = cv::Mat::zeros(CP_NUM*2, 1, CV_32FC1);
     cv::Mat dh_diff_R = cv::Mat::zeros(CP_NUM*2, 1, CV_32FC1);
-    cv::Mat dh_ddiff_L(CP_NUM*2, 1, CV_32FC1);
-    cv::Mat dh_ddiff_R(CP_NUM*2, 1, CV_32FC1);
+    cv::Mat dh_ddiff_step_L(CP_NUM*2, 1, CV_32FC1);
+    cv::Mat dh_ddiff_step_R(CP_NUM*2, 1, CV_32FC1);
 
     cv::Mat h_depth(CP_NUM, 1, CV_32FC1);
 
@@ -78,16 +80,23 @@ int main(void) {
 //                     "depth_test_vids/Mar_6/11:32:35_stereo_data/stereo_raw_L_300_x_60fps.avi");
 //    cv::VideoCapture cap_R(source_dir +
 //                     "depth_test_vids/Mar_6/11:32:35_stereo_data/stereo_raw_R_300_x_60fps.avi");
+//    cv::VideoCapture cap_L(source_dir +
+//                     "depth_test_vids/Mar_20/10:05:24_stereo_data/stereo_raw_L_300_x_24fps.avi");
+//    cv::VideoCapture cap_R(source_dir +
+//                     "depth_test_vids/Mar_20/10:05:24_stereo_data/stereo_raw_R_300_x_24fps.avi");
     cv::VideoCapture cap_L(source_dir +
                      "depth_test_vids/Mar_15/13:11:29_stereo_data/stereo_raw_L_300_x_10fps.avi");
     cv::VideoCapture cap_R(source_dir +
                      "depth_test_vids/Mar_15/13:11:29_stereo_data/stereo_raw_R_300_x_10fps.avi");
+    int start_frame = 10;
     int end_frame = 540;
+    int step_size = 2;
+    int center_x = 257, center_y = 163;
     // output video file
     cv::VideoWriter cap_write(source_dir + "mc_out_vids/mc_stereo_ssim.avi",
                               CV_FOURCC('H', '2', '6', '4'), 100,
                               cv::Size(IMWIDTH*3, IMHEIGHT), false);
-    std::string file_name = source_dir + "/tissue_tracker/cp_loc" + "/cp_loc_rand_.txt";
+    std::string file_name = source_dir + "/tissue_tracker/cp_loc" + "/cp_convergence_steps_.txt";
     std::ofstream out(file_name.c_str());
 
     // load camera parameters
@@ -117,7 +126,7 @@ int main(void) {
     }
     // take off first few frames to allow auto settings to settle
     bool bSuccess_L, bSuccess_R;
-    for (int i = 1; i < 10; i++) {
+    for (int i = 1; i < start_frame; i++) {
         bSuccess_L = cap_L.read(frame_0_color_L_dist);
         bSuccess_R = cap_R.read(frame_0_color_R_dist);
         if (!(bSuccess_L && bSuccess_R)) {  // if camera fails to capture, exit
@@ -151,8 +160,8 @@ int main(void) {
 
     // control point selection
     if (AUTO_SEL) {
-        center.x = 257;
-        center.y = 163;
+        center.x = center_x;
+        center.y = center_y;
         roi_0x_L = static_cast<int>(center.x-0.5*ROI_W);
         roi_0y_L = static_cast<int>(center.y-0.5*ROI_H);
         roi = cv::Rect(roi_0x_L, roi_0y_L, ROI_W, ROI_H);
@@ -347,8 +356,8 @@ int main(void) {
     h_0_L.copyTo(X_hat_L);
     h_0_R.copyTo(X_hat_R);
     // for cp step size
-    X_hat_L = cv::Scalar(2);
-    X_hat_R = cv::Scalar(2);
+    X_hat_L = cv::Scalar(step_size);
+    X_hat_R = cv::Scalar(step_size);
     // initialize data vector with initial control point locations
     /*
     for (int i = 0; i < 3; i++) {
@@ -410,6 +419,9 @@ int main(void) {
         A_R.at<float>(1, i) = -0.0;
     }
 
+    // for cp convergence step recording
+    h_0_L.copyTo(h_a_L_old_conv);
+    h_0_R.copyTo(h_a_R_old_conv);
 
     std::cout << "Program starting..." << std::endl;
     while (1) {
@@ -522,7 +534,10 @@ int main(void) {
                 im_diff_L = I_L - T_L;
 
                 dh_L = -2*J_inv_L*im_diff_L;
-                h_a_L += X_hat_L.mul(dh_L);  // * (exp(-(static_cast<double>(iter/2))) + 1);
+//                if (iter < 3)
+                    h_a_L += X_hat_L.mul(dh_L);  // * (exp(-(static_cast<double>(iter/2))) + 1);
+//                else
+//                    h_a_L += dh_L;
                 // find dh switchbacks
 //                dh_sign_L = dh_L.mul(dh_old_L);
 //                for (int i = 0; i < CP_NUM*2; i++) {
@@ -530,6 +545,10 @@ int main(void) {
 //                        e_cp_L.at<float>(i, 0)++;
 //                }
 //                dh_L.copyTo(dh_old_L);
+
+                // record steps toward convergence
+//                out << h_a_L.at<float>(0, 0) - h_a_L_old_conv.at<float>(0, 0) << " ";
+//                h_a_L.copyTo(h_a_L_old_conv);
             }
 
             if (delta_h_R > delta) {
@@ -549,7 +568,10 @@ int main(void) {
                 im_diff_R = I_R - T_R;
 
                 dh_R = -2*J_inv_R*im_diff_R;
-                h_a_R += X_hat_R.mul(dh_R);  // * (exp(-(static_cast<double>(iter/2))) + 1);
+//                if (iter < 3)
+                    h_a_R += X_hat_R.mul(dh_R);  // * (exp(-(static_cast<double>(iter/2))) + 1);
+//                else
+//                    h_a_R += dh_R;
                 // find dh switchbacks
 //                dh_sign_R = dh_R.mul(dh_old_R);
 //                for (int i = 0; i < CP_NUM*2; i++) {
@@ -570,6 +592,7 @@ int main(void) {
 
         } while (delta_h_L > delta && delta_h_R > delta && iter < 30);
 
+//        out << "\n";
 
         // testing hannaford controller with known functions
 //        for (int i = 0; i < 2*CP_NUM; i++) {
@@ -742,54 +765,56 @@ int main(void) {
 ////        }
 
 
-        dh_ddiff_L = 2*(h_a_L - h_a_L_old) - dh_diff_L;
-        dh_ddiff_R = 2*(h_a_R - h_a_R_old) - dh_diff_R;
+        dh_ddiff_step_L = 2*(h_a_L - h_a_L_old) - dh_diff_L;  // 2*(new loc diff) - old loc diff
+        dh_ddiff_step_R = 2*(h_a_R - h_a_R_old) - dh_diff_R;
 
-        dh_diff_L = h_a_L - h_a_L_old;
+        dh_diff_L = h_a_L - h_a_L_old;  // new loc diff
         dh_diff_R = h_a_R - h_a_R_old;
-        // control point pixel differences between frames (steps)
-//        for (int j = 0; j < 2*CP_NUM; j++) {
-//            out << dh_diff_L.at<float>(j, 0) << " ";
-//        }
-//        for (int j = 0; j < 2*CP_NUM; j++) {
-//            out << dh_diff_R.at<float>(j, 0) << " ";
-//        }
-        // control point locations
-        for (int j = 0; j < 2*CP_NUM; j++) {
-            out << h_a_L.at<float>(j, 0) << " ";
-        }
-        for (int j = 0; j < 2*CP_NUM; j++) {
-            out << h_a_R.at<float>(j, 0) << " ";
-        }
-
-        // Kalman filter estimate for next cp iter step
-//        mc::KalmanStepCP(&dh_ddiff_L, &dh_ddiff_R);
-//        for (int j = 0; j < 2*CP_NUM; j++) {
-//            out << dh_diff_L.at<float>(j, 0) << " ";
-//        }
-//        for (int j = 0; j < 2*CP_NUM; j++) {
-//            out << dh_diff_R.at<float>(j, 0) << " ";
-//        }
-
-//        h_a_L += dh_ddiff_L;
-//        h_a_R += dh_ddiff_R;
-
-        h_a_L += dh_diff_L;
-        h_a_R += dh_diff_R;
-
-        // Kalman filter estimate for next cp iter location
-        mc::KalmanStepCP(&h_a_L, &h_a_R);
-        for (int j = 0; j < 2*CP_NUM; j++) {
-            out << h_a_L.at<float>(j, 0) << " ";
-        }
-        for (int j = 0; j < 2*CP_NUM; j++) {
-            out << h_a_R.at<float>(j, 0) << " ";
-        }
-
-        out << "\n";
 
         h_a_L.copyTo(h_a_L_old);
         h_a_R.copyTo(h_a_R_old);
+
+        // control point pixel differences between frames (steps)
+        for (int j = 0; j < 2*CP_NUM; j++) {
+            out << dh_diff_L.at<float>(j, 0) << " ";
+        }
+        for (int j = 0; j < 2*CP_NUM; j++) {
+            out << dh_diff_R.at<float>(j, 0) << " ";
+        }
+        // control point locations
+//        for (int j = 0; j < 2*CP_NUM; j++) {
+//            out << h_a_L.at<float>(j, 0) << " ";
+//        }
+//        for (int j = 0; j < 2*CP_NUM; j++) {
+//            out << h_a_R.at<float>(j, 0) << " ";
+//        }
+
+        // Kalman filter estimate for next cp iter step
+        mc::KalmanStepCP(&dh_ddiff_step_L, &dh_ddiff_step_R, 5.0, 12.0);
+        for (int j = 0; j < 2*CP_NUM; j++) {
+            out << dh_ddiff_step_L.at<float>(j, 0) << " ";
+        }
+        for (int j = 0; j < 2*CP_NUM; j++) {
+            out << dh_ddiff_step_R.at<float>(j, 0) << " ";
+        }
+        h_a_L += dh_ddiff_step_L;
+        h_a_R += dh_ddiff_step_R;
+
+        // Kalman filter estimate for next cp iter location
+//        h_a_L += dh_diff_L;
+//        h_a_R += dh_diff_R;
+//        mc::KalmanStepCP(&h_a_L, &h_a_R, 5.0, 2.0);
+//        for (int j = 0; j < 2*CP_NUM; j++) {
+//            out << h_a_L.at<float>(j, 0) << " ";
+//        }
+//        for (int j = 0; j < 2*CP_NUM; j++) {
+//            out << h_a_R.at<float>(j, 0) << " ";
+//        }
+
+        out << "\n";
+
+//        h_a_L.copyTo(h_a_L_old);
+//        h_a_R.copyTo(h_a_R_old);
 
         ////
 
@@ -827,7 +852,8 @@ int main(void) {
             text = "";
         }
 
-        cv::Size textSize = getTextSize(text, font_face, font_scale, font_thickness, &font_baseline);
+        cv::Size textSize = getTextSize(text, font_face, font_scale,
+                                        font_thickness, &font_baseline);
         font_baseline += font_thickness;
 
         // center the text
