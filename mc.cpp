@@ -645,8 +645,6 @@ void KalmanStepCP(cv::Mat *Z_L, cv::Mat *Z_R, float sigma_model, float sigma_mea
             A_R.at<float>(i*2, i*2 + 1) = 1.0;
         }
     }
-//    std::cout << Xk_L_ << std::endl;
-//    std::cout << Xk_R_ << std::endl;
 
 //    std::cout << P_L << std::endl;
     P_L_ = A_L*P_L*A_L.t() + QL;

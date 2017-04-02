@@ -21,6 +21,7 @@ int main(void) {
     cv::Mat J_0_R = cv::Mat::zeros(PIXELS, CP_NUM*2, CV_32FC1);
     cv::Mat X_L = cv::Mat::zeros(PIXELS, 2, CV_16UC1), X_R = cv::Mat::zeros(PIXELS, 2, CV_16UC1);
     cv::Mat roi_proj = cv::Mat(PIXELS, 3, CV_32FC1), roi_3D = cv::Mat(PIXELS, 3, CV_32FC1);
+
     // camera parameters
     cv::Mat E, F, R, T, rot_rect_L, rot_rect_R, proj_rect_L, proj_rect_R, disp_to_depth;
     cv::Mat cam1map1, cam1map2, cam2map1, cam2map2;
@@ -45,6 +46,8 @@ int main(void) {
     cv::Mat dh_diff_R = cv::Mat::zeros(CP_NUM*2, 1, CV_32FC1);
     cv::Mat dh_ddiff_step_L(CP_NUM*2, 1, CV_32FC1);
     cv::Mat dh_ddiff_step_R(CP_NUM*2, 1, CV_32FC1);
+    cv::Mat h_a_kal_L = cv::Mat::zeros(CP_NUM*2, 1, CV_32FC1);
+    cv::Mat h_a_kal_R = cv::Mat::zeros(CP_NUM*2, 1, CV_32FC1);
 
     cv::Mat h_depth(CP_NUM, 1, CV_32FC1);
 
@@ -96,7 +99,7 @@ int main(void) {
     cv::VideoWriter cap_write(source_dir + "mc_out_vids/mc_stereo_ssim.avi",
                               CV_FOURCC('H', '2', '6', '4'), 100,
                               cv::Size(IMWIDTH*3, IMHEIGHT), false);
-    std::string file_name = source_dir + "/tissue_tracker/cp_loc" + "/cp_convergence_steps_.txt";
+    std::string file_name = source_dir + "/tissue_tracker/cp_loc" + "/cp_conv_steps_err_.txt";
     std::ofstream out(file_name.c_str());
 
     // load camera parameters
@@ -771,16 +774,34 @@ int main(void) {
         dh_diff_L = h_a_L - h_a_L_old;  // new loc diff
         dh_diff_R = h_a_R - h_a_R_old;
 
+        // kalman error for step
+        for (int j = 0; j < 2*CP_NUM; j++) {
+            out << (h_a_L.at<float>(j, 0) - h_a_L_old.at<float>(j, 0))
+                   - h_a_kal_L.at<float>(j, 0) << " ";
+        }
+        for (int j = 0; j < 2*CP_NUM; j++) {
+            out << (h_a_R.at<float>(j, 0) - h_a_R_old.at<float>(j, 0))
+                   - h_a_kal_R.at<float>(j, 0) << " ";
+        }
+
         h_a_L.copyTo(h_a_L_old);
         h_a_R.copyTo(h_a_R_old);
 
+        // kalman error for loc
+//        for (int j = 0; j < 2*CP_NUM; j++) {
+//            out << h_a_L.at<float>(j, 0) - h_a_kal_L.at<float>(j, 0) << " ";
+//        }
+//        for (int j = 0; j < 2*CP_NUM; j++) {
+//            out << h_a_R.at<float>(j, 0) - h_a_kal_R.at<float>(j, 0) << " ";
+//        }
+
         // control point pixel differences between frames (steps)
-        for (int j = 0; j < 2*CP_NUM; j++) {
-            out << dh_diff_L.at<float>(j, 0) << " ";
-        }
-        for (int j = 0; j < 2*CP_NUM; j++) {
-            out << dh_diff_R.at<float>(j, 0) << " ";
-        }
+//        for (int j = 0; j < 2*CP_NUM; j++) {
+//            out << dh_diff_L.at<float>(j, 0) << " ";
+//        }
+//        for (int j = 0; j < 2*CP_NUM; j++) {
+//            out << dh_diff_R.at<float>(j, 0) << " ";
+//        }
         // control point locations
 //        for (int j = 0; j < 2*CP_NUM; j++) {
 //            out << h_a_L.at<float>(j, 0) << " ";
@@ -791,12 +812,14 @@ int main(void) {
 
         // Kalman filter estimate for next cp iter step
         mc::KalmanStepCP(&dh_ddiff_step_L, &dh_ddiff_step_R, 5.0, 12.0);
-        for (int j = 0; j < 2*CP_NUM; j++) {
-            out << dh_ddiff_step_L.at<float>(j, 0) << " ";
-        }
-        for (int j = 0; j < 2*CP_NUM; j++) {
-            out << dh_ddiff_step_R.at<float>(j, 0) << " ";
-        }
+        dh_ddiff_step_L.copyTo(h_a_kal_L);
+        dh_ddiff_step_R.copyTo(h_a_kal_R);
+//        for (int j = 0; j < 2*CP_NUM; j++) {
+//            out << h_a_kal_L.at<float>(j, 0) << " ";
+//        }
+//        for (int j = 0; j < 2*CP_NUM; j++) {
+//            out << h_a_kal_R.at<float>(j, 0) << " ";
+//        }
         h_a_L += dh_ddiff_step_L;
         h_a_R += dh_ddiff_step_R;
 
@@ -804,11 +827,13 @@ int main(void) {
 //        h_a_L += dh_diff_L;
 //        h_a_R += dh_diff_R;
 //        mc::KalmanStepCP(&h_a_L, &h_a_R, 5.0, 2.0);
+//        h_a_L.copyTo(h_a_kal_L);
+//        h_a_R.copyTo(h_a_kal_R);
 //        for (int j = 0; j < 2*CP_NUM; j++) {
-//            out << h_a_L.at<float>(j, 0) << " ";
+//            out << h_a_kal_L.at<float>(j, 0) << " ";
 //        }
 //        for (int j = 0; j < 2*CP_NUM; j++) {
-//            out << h_a_R.at<float>(j, 0) << " ";
+//            out << h_a_kal_R.at<float>(j, 0) << " ";
 //        }
 
         out << "\n";
