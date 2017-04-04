@@ -608,6 +608,7 @@ double CalcDepth(double disp) {
 void KalmanStepCP(cv::Mat *Z_L, cv::Mat *Z_R, float sigma_model, float sigma_meas) {
     static bool first = true;
     const int n = 4*CP_NUM, m = 2*CP_NUM;
+    cv::Mat noise = cv::Mat(m, 1, CV_32FC1);
     static cv::Mat Xk_L = cv::Mat::zeros(n, 1, CV_32FC1),
             Xk_L_= cv::Mat::zeros(n, 1, CV_32FC1),
             A_L  = cv::Mat::eye(n, n, CV_32FC1),
@@ -646,6 +647,19 @@ void KalmanStepCP(cv::Mat *Z_L, cv::Mat *Z_R, float sigma_model, float sigma_mea
         }
     }
 
+    // adding gaussian noise -> slightly lowers performance with loc testing
+//    std::default_random_engine default_ran(time(0));  // seed
+//    std::normal_distribution<float> norm_dist(0, 0.05);  // mean, std dev
+//    for (int i = 0; i < m; i++)
+//        noise.at<float>(i, 0) = norm_dist(default_ran);
+//    *Z_L += noise;
+//    *Z_R += noise;
+
+//    std::cout << P_L << std::endl;
+//    std::cout << M_L << std::endl;
+//    std::cout << Xk_L_ << std::endl;
+//    std::cout << A_L << std::endl;
+
 //    std::cout << P_L << std::endl;
     P_L_ = A_L*P_L*A_L.t() + QL;
 //    std::cout << P_L_ << std::endl;
@@ -655,7 +669,7 @@ void KalmanStepCP(cv::Mat *Z_L, cv::Mat *Z_R, float sigma_model, float sigma_mea
 //    std::cout << K_L << std::endl;
     P_L  = P_L_ - K_L*M_L*P_L_;
 //    std::cout << P_L << std::endl;
-    Xk_L = A_L*Xk_L_ + K_L*(*Z_L - M_L*A_L*Xk_L_);
+    Xk_L = A_L*Xk_L_ + 1.4*K_L*(*Z_L - M_L*A_L*Xk_L_);
 //    std::cout << Xk_L << std::endl;
     Xk_L.copyTo(Xk_L_);
 
@@ -663,7 +677,7 @@ void KalmanStepCP(cv::Mat *Z_L, cv::Mat *Z_R, float sigma_model, float sigma_mea
     S_R  = M_R*P_R_*M_R.t() + R_R;
     K_R  = P_R_*M_R.t()*S_R.inv();
     P_R  = P_R_ - K_R*M_R*P_R_;
-    Xk_R = A_R*Xk_R_ + K_R*(*Z_R - M_R*A_R*Xk_R_);
+    Xk_R = A_R*Xk_R_ + 1.4*K_R*(*Z_R - M_R*A_R*Xk_R_);
     Xk_R.copyTo(Xk_R_);
 
     for (int i = 0; i < 2*CP_NUM; i++) {
