@@ -585,6 +585,26 @@ int main(void) {
             }
 //*/
 
+            // kalmaning with noisy measurements (limiting # of iters)
+            if (iter == 0) {
+                if (frame_num == 1 ) {  // first
+                    for (int j = 0; j < 2*CP_NUM; j++)
+                        out << h_0_L.at<float>(j, 0) << " ";
+                    for (int j = 0; j < 2*CP_NUM; j++)
+                        out << h_0_R.at<float>(j, 0) << " ";
+                    out << "\n";
+                }
+                for (int j = 0; j < 2*CP_NUM; j++)
+                    out << h_a_L.at<float>(j, 0) << " ";
+                for (int j = 0; j < 2*CP_NUM; j++)
+                    out << h_a_R.at<float>(j, 0) << " ";
+                out << "\n";
+
+                // perform kalman filtering here, with the noisy measurements
+//                mc::KalmanStepCP(&h_a_L, &h_a_R, 5.0, 2.0);
+            }
+            // end kalmaning
+
             iter++;
 
             delta_h_L = delta_h_R = 0;
@@ -593,7 +613,7 @@ int main(void) {
                 delta_h_R += fabs(dh_R.at<float>(j, 0));
             }
 
-        } while (delta_h_L > delta && delta_h_R > delta && iter < 30);
+        } while (delta_h_L > delta && delta_h_R > delta && iter < 1);
 
 //        out << "\n";
 
@@ -774,7 +794,7 @@ int main(void) {
         dh_diff_L = h_a_L - h_a_L_old;  // new loc diff
         dh_diff_R = h_a_R - h_a_R_old;
 
-        // kalman error for step
+        // write kalman error for step
 //        for (int j = 0; j < 2*CP_NUM; j++)
 //            out << (h_a_L.at<float>(j, 0) - h_a_L_old.at<float>(j, 0))
 //                   - h_a_kal_L.at<float>(j, 0) << " ";
@@ -785,7 +805,7 @@ int main(void) {
         h_a_L.copyTo(h_a_L_old);
         h_a_R.copyTo(h_a_R_old);
 
-        // kalman error for loc
+        // write kalman error for loc
 //        for (int j = 0; j < 2*CP_NUM; j++)
 //            out << h_a_L.at<float>(j, 0) - h_a_kal_L.at<float>(j, 0) << " ";
 //        for (int j = 0; j < 2*CP_NUM; j++)
@@ -808,6 +828,12 @@ int main(void) {
 //            out << dh_diff_L.at<float>(j, 0) << " ";
 //        for (int j = 0; j < 2*CP_NUM; j++)
 //            out << dh_diff_R.at<float>(j, 0) << " ";
+//          // write model prediction
+//        for (int j = 0; j < 2*CP_NUM; j++)
+////            out << dh_ddiff_step_L.at<float>(j, 0) << " ";
+////        for (int j = 0; j < 2*CP_NUM; j++)
+////            out << dh_ddiff_step_R.at<float>(j, 0) << " ";
+//          // end write
 //        // Kalman filter estimate for next cp iter STEP
 //        mc::KalmanStepCP(&dh_ddiff_step_L, &dh_ddiff_step_R, 5.0, 12.0);
 //        dh_ddiff_step_L.copyTo(h_a_kal_L);
@@ -820,36 +846,39 @@ int main(void) {
 //        h_a_R += dh_ddiff_step_R;
 
         // control point locations
-        if (frame_num == 1) {
-            for (int j = 0; j < 2*CP_NUM; j++)
-                out << h_0_L.at<float>(j, 0) << " ";
-            for (int j = 0; j < 2*CP_NUM; j++)
-                out << h_0_R.at<float>(j, 0) << " ";
-            for (int j = 0; j < 2*CP_NUM; j++)
-                out << h_0_L.at<float>(j, 0) << " ";
-            for (int j = 0; j < 2*CP_NUM; j++)
-                out << h_0_R.at<float>(j, 0) << " ";
-            out << "\n";
-        }
-        for (int j = 0; j < 2*CP_NUM; j++)
-            out << h_a_L.at<float>(j, 0) << " ";
-        for (int j = 0; j < 2*CP_NUM; j++)
-            out << h_a_R.at<float>(j, 0) << " ";
-        // Kalman filter estimate for next cp iter LOCATION
-        h_a_L += dh_diff_L;
-        h_a_R += dh_diff_R;
-        mc::KalmanStepCP(&h_a_L, &h_a_R, 5.0, 2.0);
-        h_a_L.copyTo(h_a_kal_L);
-        h_a_R.copyTo(h_a_kal_R);
-        for (int j = 0; j < 2*CP_NUM; j++)
-            out << h_a_kal_L.at<float>(j, 0) << " ";
-        for (int j = 0; j < 2*CP_NUM; j++)
-            out << h_a_kal_R.at<float>(j, 0) << " ";
+//        if (frame_num == 1) {
+//            for (int j = 0; j < 2*CP_NUM; j++)
+//                out << h_0_L.at<float>(j, 0) << " ";
+//            for (int j = 0; j < 2*CP_NUM; j++)
+//                out << h_0_R.at<float>(j, 0) << " ";
+//            for (int j = 0; j < 2*CP_NUM; j++)
+//                out << h_0_L.at<float>(j, 0) << " ";
+//            for (int j = 0; j < 2*CP_NUM; j++)
+//                out << h_0_R.at<float>(j, 0) << " ";
+//            out << "\n";
+//        }
+//        for (int j = 0; j < 2*CP_NUM; j++)
+//            out << h_a_L.at<float>(j, 0) << " ";
+//        for (int j = 0; j < 2*CP_NUM; j++)
+//            out << h_a_R.at<float>(j, 0) << " ";
+//        // Kalman filter estimate for next cp iter LOCATION
+//        h_a_L += dh_diff_L;
+//        h_a_R += dh_diff_R;
+//        // write model prediction
+////        for (int j = 0; j < 2*CP_NUM; j++)
+////            out << h_a_L.at<float>(j, 0) << " ";
+////        for (int j = 0; j < 2*CP_NUM; j++)
+////            out << h_a_R.at<float>(j, 0) << " ";
+//        // end write
+//        mc::KalmanStepCP(&h_a_L, &h_a_R, 5.0, 2.0);
+//        h_a_L.copyTo(h_a_kal_L);
+//        h_a_R.copyTo(h_a_kal_R);
+//        for (int j = 0; j < 2*CP_NUM; j++)
+//            out << h_a_kal_L.at<float>(j, 0) << " ";
+//        for (int j = 0; j < 2*CP_NUM; j++)
+//            out << h_a_kal_R.at<float>(j, 0) << " ";
 
-        out << "\n";
-
-//        h_a_L.copyTo(h_a_L_old);
-//        h_a_R.copyTo(h_a_R_old);
+//        out << "\n";
 
         ////
 
