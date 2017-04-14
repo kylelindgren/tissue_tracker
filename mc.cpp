@@ -669,7 +669,7 @@ void KalmanStepCP(cv::Mat *Z_L, cv::Mat *Z_R, float sigma_model, float sigma_mea
 //    std::cout << K_L << std::endl;
     P_L  = P_L_ - K_L*M_L*P_L_;
 //    std::cout << P_L << std::endl;
-    Xk_L = A_L*Xk_L_ + 1.4*K_L*(*Z_L - M_L*A_L*Xk_L_);
+    Xk_L = A_L*Xk_L_ + K_L*(*Z_L - M_L*A_L*Xk_L_);
 //    std::cout << Xk_L << std::endl;
     Xk_L.copyTo(Xk_L_);
 
@@ -677,7 +677,7 @@ void KalmanStepCP(cv::Mat *Z_L, cv::Mat *Z_R, float sigma_model, float sigma_mea
     S_R  = M_R*P_R_*M_R.t() + R_R;
     K_R  = P_R_*M_R.t()*S_R.inv();
     P_R  = P_R_ - K_R*M_R*P_R_;
-    Xk_R = A_R*Xk_R_ + 1.4*K_R*(*Z_R - M_R*A_R*Xk_R_);
+    Xk_R = A_R*Xk_R_ + K_R*(*Z_R - M_R*A_R*Xk_R_);
     Xk_R.copyTo(Xk_R_);
 
     for (int i = 0; i < 2*CP_NUM; i++) {

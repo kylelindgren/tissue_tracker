@@ -25,9 +25,10 @@
 #define PIXELS   ROI_W*ROI_H
 #define KSIZE    1  // kernel size for sobel filtering
 
-#define BASELINE 9   // in mm
-#define FOCAL    18.5636  // in mm from cv::calibrationMatrixValues() opencv_calib.yaml
-
+#define BASELINE 11.82   // in mm
+//#define FOCAL    18.5636  // in mm from cv::calibrationMatrixValues() opencv_calib.yaml
+#define FOCAL    19.5917  // using the first surface mirrors
+#define LENS_MIR_OFFSET 8.0
 
 namespace mc {
 

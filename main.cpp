@@ -3,8 +3,8 @@
 #include "ssim.hpp"
 #include "mainwindow.hpp"
 
-#define WRITE    0
-#define AUTO_SEL 1
+#define WRITE    1
+#define AUTO_SEL 0
 #define SHOW_METRICS 1
 
 
@@ -68,7 +68,7 @@ int main(void) {
     float correction_L[n_bins], expected_L[n_bins], p_joint_L[n_bins*n_bins];
     float correction_R[n_bins], expected_R[n_bins], p_joint_R[n_bins*n_bins];
 //    float mu, mv, tu, tv;
-//    float focal;
+    float focal;
 
     cv::Point2i center;
     center.x = -1; center.y = -1;
@@ -87,14 +87,56 @@ int main(void) {
 //                     "depth_test_vids/Mar_20/10:05:24_stereo_data/stereo_raw_L_300_x_24fps.avi");
 //    cv::VideoCapture cap_R(source_dir +
 //                     "depth_test_vids/Mar_20/10:05:24_stereo_data/stereo_raw_R_300_x_24fps.avi");
+    // the "cp controller testing" one:
+//    cv::VideoCapture cap_L(source_dir +
+//                     "depth_test_vids/Mar_15/13:11:29_stereo_data/stereo_raw_L_300_x_10fps.avi");
+//    cv::VideoCapture cap_R(source_dir +
+//                     "depth_test_vids/Mar_15/13:11:29_stereo_data/stereo_raw_R_300_x_10fps.avi");
+
+     // first surface vids:
+//    cv::VideoCapture cap_L(source_dir +
+//                     "depth_test_vids/Apr_12/11:40:40_stereo_data/stereo_raw_L_Z250-200.avi");
+//    cv::VideoCapture cap_R(source_dir +
+//                     "depth_test_vids/Apr_12/11:40:40_stereo_data/stereo_raw_R_Z250-200.avi");
+//    cv::VideoCapture cap_L(source_dir +
+//                     "depth_test_vids/Apr_12/16:39:25_stereo_data/stereo_raw_L_Z_step_350_200.avi");
+//    cv::VideoCapture cap_R(source_dir +
+//                     "depth_test_vids/Apr_12/16:39:25_stereo_data/stereo_raw_R_Z_step_350_200.avi");
+//    cv::VideoCapture cap_L(source_dir +
+//                     "depth_test_vids/Apr_13/09:11:50_stereo_data/stereo_raw_L_Z_step_350_200.avi");
+//    cv::VideoCapture cap_R(source_dir +
+//                     "depth_test_vids/Apr_13/09:11:50_stereo_data/stereo_raw_R_Z_step_350_200.avi");
+
+//    cv::VideoCapture cap_L(source_dir +
+//                     "depth_test_vids/Apr_13/12:45:47_stereo_data/stereo_raw_L_X_350_50.avi");
+//    cv::VideoCapture cap_R(source_dir +
+//                     "depth_test_vids/Apr_13/12:45:47_stereo_data/stereo_raw_R_X_350_50.avi");
+//    cv::VideoCapture cap_L(source_dir +
+//                     "depth_test_vids/Apr_13/12:48:28_stereo_data/stereo_raw_L_X_300_50.avi");
+//    cv::VideoCapture cap_R(source_dir +
+//                     "depth_test_vids/Apr_13/12:48:28_stereo_data/stereo_raw_R_X_300_50.avi");
+//    cv::VideoCapture cap_L(source_dir +
+//                     "depth_test_vids/Apr_13/12:51:02_stereo_data/stereo_raw_L_X_250_50.avi");
+//    cv::VideoCapture cap_R(source_dir +
+//                     "depth_test_vids/Apr_13/12:51:02_stereo_data/stereo_raw_R_X_250_50.avi");
+//    cv::VideoCapture cap_L(source_dir +
+//                     "depth_test_vids/Apr_13/14:08:07_stereo_data/stereo_raw_L_Xstep_350_80.avi");
+//    cv::VideoCapture cap_R(source_dir +
+//                     "depth_test_vids/Apr_13/14:08:07_stereo_data/stereo_raw_R_Xstep_350_80.avi");
+//    cv::VideoCapture cap_L(source_dir +
+//                     "depth_test_vids/Apr_13/14:10:39_stereo_data/stereo_raw_L_Xstep_300_70.avi");
+//    cv::VideoCapture cap_R(source_dir +
+//                     "depth_test_vids/Apr_13/14:10:39_stereo_data/stereo_raw_R_Xstep_300_70.avi");
     cv::VideoCapture cap_L(source_dir +
-                     "depth_test_vids/Mar_15/13:11:29_stereo_data/stereo_raw_L_300_x_10fps.avi");
+                     "depth_test_vids/Apr_13/14:13:00_stereo_data/stereo_raw_L_Xstep_250_50.avi");
     cv::VideoCapture cap_R(source_dir +
-                     "depth_test_vids/Mar_15/13:11:29_stereo_data/stereo_raw_R_300_x_10fps.avi");
+                     "depth_test_vids/Apr_13/14:13:00_stereo_data/stereo_raw_R_Xstep_250_50.avi");
+
     int start_frame = 10;
-    int end_frame = 540;
+    int end_frame = 5400;
     double step_size = 2.0;
-    int center_x = 257, center_y = 163;
+//    int center_x = 295, center_y = 254;  // 1surf Z 250-200
+    int center_x = 311, center_y = 304;  // 1surf Z step 350-200
     // output video file
     cv::VideoWriter cap_write(source_dir + "mc_out_vids/mc_stereo_ssim.avi",
                               CV_FOURCC('H', '2', '6', '4'), 100,
@@ -104,15 +146,33 @@ int main(void) {
 
     // load camera parameters
     std::string yaml_directory = "/home/kylelindgren/cpp_ws/yamls/";
+//    std::string yaml_file = "opencv_calib.yaml";
+    std::string yaml_file = "opencv_calib_1surf.yaml";
 
-    calib_mat_L = mc::LoadParameters(yaml_directory + "opencv_calib.yaml", "M1");
-    calib_mat_R = mc::LoadParameters(yaml_directory + "opencv_calib.yaml", "M2");
-    dist_coef_L = mc::LoadParameters(yaml_directory + "opencv_calib.yaml", "D1");
-    dist_coef_R = mc::LoadParameters(yaml_directory + "opencv_calib.yaml", "D2");
-    E = mc::LoadParameters(yaml_directory + "opencv_calib.yaml", "E");
-    F = mc::LoadParameters(yaml_directory + "opencv_calib.yaml", "F");
-    R = mc::LoadParameters(yaml_directory + "opencv_calib.yaml", "R");
-    T = mc::LoadParameters(yaml_directory + "opencv_calib.yaml", "T");
+    calib_mat_L = mc::LoadParameters(yaml_directory + yaml_file, "M1");
+    calib_mat_R = mc::LoadParameters(yaml_directory + yaml_file, "M2");
+    dist_coef_L = mc::LoadParameters(yaml_directory + yaml_file, "D1");
+    dist_coef_R = mc::LoadParameters(yaml_directory + yaml_file, "D2");
+    E = mc::LoadParameters(yaml_directory + yaml_file, "E");
+    F = mc::LoadParameters(yaml_directory + yaml_file, "F");
+    R = mc::LoadParameters(yaml_directory + yaml_file, "R");
+    T = mc::LoadParameters(yaml_directory + yaml_file, "T");
+
+    // get camera parameters
+//    cv::Size imageSize(640, 480);
+//    double apertureWidth = 5.856;
+//    double apertureHeight = 3.276;
+//    double fieldOfViewX;
+//    double fieldOfViewY;
+//    double focalLength;
+//    cv::Point2d principalPoint;
+//    double aspectRatio;
+//    cv::calibrationMatrixValues(calib_mat_L, imageSize, apertureWidth, apertureHeight,
+//                                fieldOfViewX, fieldOfViewY, focalLength,
+//                                principalPoint, aspectRatio);
+//    std::cout << focalLength << std::endl;
+//    std::cout << fieldOfViewX << "\n" << fieldOfViewY << "\n"
+//              << principalPoint << "\n" << aspectRatio << std::endl;
 
     cv::stereoRectify(calib_mat_L, dist_coef_L, calib_mat_R, dist_coef_R,
                       cv::Size(IMWIDTH, IMHEIGHT), R, T, rot_rect_L, rot_rect_R,
@@ -122,6 +182,9 @@ int main(void) {
                                 cv::Size(IMWIDTH, IMHEIGHT), CV_32FC1, cam1map1, cam1map2);
     cv::initUndistortRectifyMap(calib_mat_R, dist_coef_R, rot_rect_R, proj_rect_R,
                                 cv::Size(IMWIDTH, IMHEIGHT), CV_32FC1, cam2map1, cam2map2);
+
+    focal = calib_mat_L.at<double>(0, 0);
+//    focal = 1500;
 
     if (!(cap_L.isOpened() && cap_R.isOpened())) {  // if not success, exit program
         std::cout << "Cannot open the video cameras" << std::endl;
@@ -233,6 +296,9 @@ int main(void) {
     h_a_L = h_0_L.clone();  // initial control pt values used for 1st current control pt estimates
     h_a_R = h_0_R.clone();
 
+    std::cout << left_features[0].x - right_features[0].x << std::endl;
+    std::cout << h_0_L - h_0_R << std::endl;
+
     // fill X matrix with calculated 3D coordinates of all pixels in roi
     uint16_t x_pos, y_pos;
     for (int i = 0; i < PIXELS; i++) {
@@ -306,7 +372,7 @@ int main(void) {
     float x, y, z;
     x = y = z = 0;
     int qsize = 30;
-    int cp_steps = 2;
+//    int cp_steps = 2;
 
     // ssim variables
     cv::String text_ssim_L, text_ssim_R;
@@ -585,26 +651,6 @@ int main(void) {
             }
 //*/
 
-            // kalmaning with noisy measurements (limiting # of iters)
-            if (iter == 0) {
-                if (frame_num == 1 ) {  // first
-                    for (int j = 0; j < 2*CP_NUM; j++)
-                        out << h_0_L.at<float>(j, 0) << " ";
-                    for (int j = 0; j < 2*CP_NUM; j++)
-                        out << h_0_R.at<float>(j, 0) << " ";
-                    out << "\n";
-                }
-                for (int j = 0; j < 2*CP_NUM; j++)
-                    out << h_a_L.at<float>(j, 0) << " ";
-                for (int j = 0; j < 2*CP_NUM; j++)
-                    out << h_a_R.at<float>(j, 0) << " ";
-                out << "\n";
-
-                // perform kalman filtering here, with the noisy measurements
-//                mc::KalmanStepCP(&h_a_L, &h_a_R, 5.0, 2.0);
-            }
-            // end kalmaning
-
             iter++;
 
             delta_h_L = delta_h_R = 0;
@@ -613,7 +659,31 @@ int main(void) {
                 delta_h_R += fabs(dh_R.at<float>(j, 0));
             }
 
-        } while (delta_h_L > delta && delta_h_R > delta && iter < 1);
+            // kalmaning with noisy measurements (limiting # of iters)
+            // delta: exit too soon
+//            if (iter == 2 || (iter < 2 && (delta_h_R < delta || delta_h_L < delta))) {
+//                if (frame_num == 1 ) {  // first
+//                    for (int j = 0; j < 2*CP_NUM; j++)
+//                        out << h_0_L.at<float>(j, 0) << " ";
+//                    for (int j = 0; j < 2*CP_NUM; j++)
+//                        out << h_0_R.at<float>(j, 0) << " ";
+//                    out << "\n";
+//                }
+//                for (int j = 0; j < 2*CP_NUM; j++)
+//                    out << h_a_L.at<float>(j, 0) << " ";
+//                for (int j = 0; j < 2*CP_NUM; j++)
+//                    out << h_a_R.at<float>(j, 0) << " ";
+//                out << "\n";
+
+////                std::cout << h_a_L << std::endl;
+//                // perform kalman filtering here, with the noisy measurements
+////                mc::KalmanStepCP(&h_a_L, &h_a_R, 5.0, 2.0);
+////                std::cout << h_a_L << std::endl;
+
+//            }
+            // end kalmaning
+
+        } while (delta_h_L > delta && delta_h_R > delta && iter < 30);
 
 //        out << "\n";
 
@@ -891,15 +961,21 @@ int main(void) {
         //        UpdateDepth(focal, h_depth, h_a_L, h_a_R);
         //        roi_proj.col(2) = MK_L*h_depth;
 
-        // calc projective coords (u,v,w) of roi
-        for (int i = 0; i < PIXELS; i++)
-            roi_proj.at<float>(i, 2) = mc::CalcDepth(mapx_L.at<float>(i, 0) -
-                                                     mapx_R.at<float>(i, 0));
-//        roi_proj.col(2) = BASELINE * focal / (mapx_L - mapx_R);  // depth in mm -> w = Z
+        // calc projective coords (u, v, w) of roi
+//        for (int i = 0; i < PIXELS; i++)
+//            roi_proj.at<float>(i, 2) = mc::CalcDepth(mapx_L.at<float>(i, 0) -
+//                                                     mapx_R.at<float>(i, 0));
+        // depth in mm -> w = Z
+        roi_proj.col(2) = (BASELINE * focal / abs(mapx_L - mapx_R)) - LENS_MIR_OFFSET;
         roi_proj.col(0) = mapx_L.mul(roi_proj.col(2));           // pixel values * depth(w)
         roi_proj.col(1) = mapy_L.mul(roi_proj.col(2));
 
         roi_3D = roi_proj*C_inv_t;
+
+//        out << h_a_L.at<float>(1, 0) - h_a_R.at<float>(1, 0) << "\n";  // disparity
+        out << roi_3D.at<float>(PIXELS/2, 0) << " ";  // x position
+        out << roi_3D.at<float>(PIXELS/2, 1) << " ";  // y
+        out << roi_3D.at<float>(PIXELS/2, 2) << "\n";  // z
 
         text = cv::format("X: %.0fmm, Y: %.0fmm, Z: %.0fmm", x, y, z);
 
