@@ -53,7 +53,7 @@ void CalcMXT(const cv::Mat h_0_L, const cv::Mat h_0_R, cv::Mat const frame_0_L,
 void CalcK(const cv::Mat h, cv::Mat *K) {
     for (int r = 0 ; r < CP_NUM; r++)
         for (int c = 0; c <= CP_NUM; c++)
-            if (c > r || c == CP_NUM) {  // K symmetric so only calculate upper right, copy values
+            if (c > r || c == CP_NUM) {  // K symm, only calculate upper right, copy values
                 if (c == CP_NUM) {
                     K->at<float>(r, c+0) = K->at<float>(c+0, r) = 1;
                     K->at<float>(r, c+1) = K->at<float>(c+1, r) = h.at<float>(r, 0);
@@ -98,8 +98,8 @@ void DrawROIBorder(const cv::Mat MK_L, const cv::Mat MK_R, const cv::Mat h,
 
     cv::Mat hx = cv::Mat::zeros(CP_NUM, 1, CV_32FC1);
     cv::Mat hy = cv::Mat::zeros(CP_NUM, 1, CV_32FC1);
-    hx = h(cv::Range(0, CP_NUM), cv::Range::all());
-    hy = h(cv::Range(CP_NUM, CP_NUM*2), cv::Range::all());
+    hx = h.rowRange(0, CP_NUM);
+    hy = h.rowRange(CP_NUM, CP_NUM*2);
 
     if (left) {
         mat_ulx = MK_L.row(0)*hx;
@@ -151,11 +151,13 @@ int ComputeJointHistogram(int n_bins, int size_bins, float expected_L[], float e
                           const cv::Mat frame_L, const cv::Mat frame_R,
                           const cv::Mat frame_0_L, const cv::Mat frame_0_R) {
     int u, v, index_L, index_R, flag_error = 0, acc = 0;
-    float p_ref;
+    float p_ref_L, p_ref_R;
 
-    // zeroing p_joint
-    for (u = 0; u < n_bins*n_bins; u++)
-        p_joint_L[u] = p_joint_R[u] = 0;
+    memset(p_joint_L, 0, n_bins*n_bins*sizeof(*p_joint_L));
+    memset(p_joint_R, 0, n_bins*n_bins*sizeof(*p_joint_R));
+
+    memset(expected_L, 0, n_bins*sizeof(*expected_L));
+    memset(expected_R, 0, n_bins*sizeof(*expected_R));
 
     // computing p_joint between 'current_warp' and 'Template'
     for (u = 0; u < ROI_W; u++) {
@@ -174,50 +176,36 @@ int ComputeJointHistogram(int n_bins, int size_bins, float expected_L[], float e
 
     // Normalizing the histogram
     if (acc > 0) {
-        // left
-        for (u = 0; u < n_bins*n_bins; u++)
-            p_joint_L[u] = p_joint_L[u]/acc;
+        for (u = 0; u < n_bins*n_bins; u++) {
+            p_joint_L[u] /= acc;
+            p_joint_R[u] /= acc;
+        }
 
         // computing expected intensity values
         for (u = 0; u < n_bins; u++) {
             // calcula p_ref
-            p_ref = 0;
+            p_ref_L = 0;
+            p_ref_R = 0;
 
             // p_ref holds histogram sum for bin u
-            for (v = 0; v < n_bins; v++)
-                p_ref += p_joint_L[v + n_bins*u];
-
-            // expected value
-            expected_L[u] = 0;
+            for (v = 0; v < n_bins; v++) {
+                p_ref_L += p_joint_L[v + n_bins*u];
+                p_ref_R += p_joint_R[v + n_bins*u];
+            }
 
             // update expected with average value for bin u
-            if (p_ref > 0) {
+            if (p_ref_L > 0) {
                 for (v = 0; v < n_bins; v++)
-                    expected_L[u] += ((v+1)*p_joint_L[v + n_bins*u]/p_ref);
+                    expected_L[u] += ((v+1)*p_joint_L[v + n_bins*u]/p_ref_L);
 
                 expected_L[u]--;
             } else {
                 expected_L[u] = static_cast<float>(u);
             }
-        }
-        // right
-        for (u = 0; u < n_bins*n_bins; u++)
-            p_joint_R[u] = p_joint_R[u]/acc;
 
-        // computing expected intensity values
-        for (u = 0; u < n_bins; u++) {
-            // calcula p_ref
-            p_ref = 0;
-
-            for (v = 0; v < n_bins; v++)
-                p_ref += p_joint_R[v + n_bins*u];
-
-            // expected value
-            expected_R[u] = 0;
-
-            if (p_ref > 0) {
+            if (p_ref_R > 0) {
                 for (v = 0; v < n_bins; v++)
-                    expected_R[u] += ((v+1)*p_joint_R[v + n_bins*u]/p_ref);
+                    expected_R[u] += ((v+1)*p_joint_R[v + n_bins*u]/p_ref_R);
 
                 expected_R[u]--;
             } else {
@@ -269,11 +257,25 @@ void ComputeExpectedImg(const cv::Mat frame_0_L, const cv::Mat frame_0_R,
 }
 
 void UpdateJ_0(const cv::Mat MK_L, const cv::Mat MK_R,
-               const cv::Mat X_L, const cv::Mat X_R,
+               const cv::Rect roi_L, const cv::Rect roi_R,
                const cv::Mat gradx_comp_L, const cv::Mat gradx_comp_R,
                const cv::Mat grady_comp_L, const cv::Mat grady_comp_R,
                cv::Mat *J_0_L, cv::Mat *J_0_R) {
-///*
+    cv::Mat gradx_comp_L_col = cv::Mat(PIXELS, 1, CV_32FC1);
+    cv::Mat grady_comp_L_col = cv::Mat(PIXELS, 1, CV_32FC1);
+    cv::Mat gradx_comp_R_col = cv::Mat(PIXELS, 1, CV_32FC1);
+    cv::Mat grady_comp_R_col = cv::Mat(PIXELS, 1, CV_32FC1);
+    gradx_comp_L_col = gradx_comp_L(roi_L).clone().reshape(1, PIXELS);
+    grady_comp_L_col = grady_comp_L(roi_L).clone().reshape(1, PIXELS);
+    gradx_comp_R_col = gradx_comp_R(roi_R).clone().reshape(1, PIXELS);
+    grady_comp_R_col = grady_comp_R(roi_R).clone().reshape(1, PIXELS);
+    for (int c = 0; c < CP_NUM; c++) {
+        J_0_L->col(c)          = MK_L.col(c).mul(gradx_comp_L_col);
+        J_0_L->col(c + CP_NUM) = MK_L.col(c).mul(grady_comp_L_col);
+        J_0_R->col(c)          = MK_R.col(c).mul(gradx_comp_R_col);
+        J_0_R->col(c + CP_NUM) = MK_R.col(c).mul(grady_comp_R_col);
+    }
+    /*
     float tempx_L, tempy_L, tempx_R, tempy_R;
     for (int r = 0; r < PIXELS; r++) {
         tempx_L = gradx_comp_L.at<float>
@@ -294,70 +296,24 @@ void UpdateJ_0(const cv::Mat MK_L, const cv::Mat MK_R,
             }
         }
     }
-//*/
-
-/*
-    cv::Mat temp_L = cv::Mat(1, 1, CV_32FC1);
-    cv::Mat temp_R = cv::Mat(1, 1, CV_32FC1);
-    cv::Mat mat_temp = cv::Mat::zeros(CP_NUM, 1, CV_32FC1);
-    for (int r = 0; r < PIXELS; r++)
-        for (int c = 0; c < CP_NUM*2; c++) {
-            mat_temp = cv::Scalar(0);
-            mat_temp.at<float>(c%CP_NUM, 0) = 1;
-            temp_L = MK_L.row(r)*mat_temp;
-            temp_R = MK_R.row(r)*mat_temp;
-            if (c < CP_NUM) {
-                J_0_L->at<float>(r, c) = temp_L.at<float>(0, 0)*gradx_comp_L.at<float>
-                        (X_L.at<ushort>(r, 1), X_L.at<ushort>(r, 0));
-                J_0_R->at<float>(r, c) = temp_R.at<float>(0, 0)*gradx_comp_R.at<float>
-                        (X_R.at<ushort>(r, 1), X_R.at<ushort>(r, 0));
-            } else {
-                J_0_L->at<float>(r, c) = temp_L.at<float>(0, 0)*grady_comp_L.at<float>
-                        (X_L.at<ushort>(r, 1), X_L.at<ushort>(r, 0));
-                J_0_R->at<float>(r, c) = temp_R.at<float>(0, 0)*grady_comp_R.at<float>
-                        (X_R.at<ushort>(r, 1), X_R.at<ushort>(r, 0));
-            }
-        }
-//*/
+//    */
 }
 
 void Jacobian(const cv::Mat I, const cv::Mat MK, cv::Mat *J) {
-/*
-//    clock_t begin = clock();
-    cv::Mat gradx, grady;
+    cv::Mat gradx = cv::Mat(ROI_H, ROI_W, CV_32FC1),
+            grady = cv::Mat(ROI_H, ROI_W, CV_32FC1),
+            gradx_col = cv::Mat(PIXELS, 1, CV_32FC1),
+            grady_col = cv::Mat(PIXELS, 1, CV_32FC1);
     cv::Sobel(I, gradx, CV_32F, 1, 0, KSIZE);
     cv::Sobel(I, grady, CV_32F, 0, 1, KSIZE);
-//    cv::Mat J_L = cv::Mat::zeros(PIXELS, CP_NUM, CV_32FC1);
-//    cv::Mat J_R = cv::Mat::zeros(PIXELS, CP_NUM, CV_32FC1);
-    cv::Mat J_L = J->colRange(0, CP_NUM).rowRange(0, PIXELS);
-    cv::Mat J_R = J->colRange(CP_NUM, CP_NUM*2).rowRange(0, PIXELS);
-//    cv::Mat gradx_1d = gradx.reshape(1, PIXELS);
-//    cv::multiply(MK, gradx_1d, J_L);
-    float tempx, tempy;
-//    std::cout << "init\t" << static_cast<double>(clock()-begin)/CLOCKS_PER_SEC
-//              << " seconds" << std::endl;
-//    begin = clock();
-    for (int r = 0; r < PIXELS; r++) {
-//        tempx = gradx.at<float>(static_cast<int>(r/ROI_W), r%ROI_W);
-//        tempy = grady.at<float>(static_cast<int>(r/ROI_W), r%ROI_W);
-        J_L.row(r) = MK.row(r) * gradx.at<float>(static_cast<int>(r/ROI_W), r%ROI_W);
-        J_R.row(r) = MK.row(r) * grady.at<float>(static_cast<int>(r/ROI_W), r%ROI_W);
-//        J_L.row(r) = MK.row(r)*tempx;
-//        J_R.row(r) = MK.row(r)*tempy;
+    gradx_col = gradx.reshape(1, PIXELS);
+    grady_col = grady.reshape(1, PIXELS);
+    for (int c = 0; c < CP_NUM; c++) {
+        J->col(c)          = MK.col(c).mul(gradx_col);
+        J->col(c + CP_NUM) = MK.col(c).mul(grady_col);
     }
-//    std::cout << "loop\t" << static_cast<double>(clock()-begin)/CLOCKS_PER_SEC
-//              << " seconds" << std::endl << std::endl;
-//*/
-
-///*
-//    clock_t begin = clock();
-    cv::Mat gradx, grady;
-    cv::Sobel(I, gradx, CV_32F, 1, 0, KSIZE);
-    cv::Sobel(I, grady, CV_32F, 0, 1, KSIZE);
+    /*
     float tempx, tempy;
-//    std::cout << "init\t" << static_cast<double>(clock()-begin)/CLOCKS_PER_SEC
-//              << " seconds" << std::endl;
-//    begin = clock();
     for (int r = 0; r < PIXELS; r++) {
         tempx = gradx.at<float>(static_cast<int>(r/ROI_W), r%ROI_W);
         tempy = grady.at<float>(static_cast<int>(r/ROI_W), r%ROI_W);
@@ -368,34 +324,8 @@ void Jacobian(const cv::Mat I, const cv::Mat MK, cv::Mat *J) {
                 J->at<float>(r, c) = MK.at<float>(r, c%CP_NUM)*tempy;
         }
     }
-//    std::cout << "loop\t" << static_cast<double>(clock()-begin)/CLOCKS_PER_SEC
-//              << " seconds" << std::endl << std::endl;
-//*/
-
-
-/*
-    cv::Mat gradx, grady;
-    cv::Mat temp = cv::Mat(1, 1, CV_32FC1);
-    cv::Mat mat_temp = cv::Mat(CP_NUM, 1, CV_32FC1);
-    cv::Sobel(I, gradx, CV_32F, 1, 0, KSIZE);
-    cv::Sobel(I, grady, CV_32F, 0, 1, KSIZE);
-    cv::Mat grad_j = cv::Mat(1, 1, CV_32FC1);
-    for (int r = 0; r < PIXELS; r++) {
-        for (int c = 0; c < CP_NUM*2; c++) {
-            mat_temp = cv::Scalar(0);
-            mat_temp.at<float>(c%CP_NUM, 0) = 1;
-            temp = MK.row(r)*mat_temp;
-            if (c < CP_NUM)
-                grad_j = temp.at<float>(0, 0)*gradx.at<float>(static_cast<int>(r/ROI_W), r%ROI_W);
-            else
-                grad_j = temp.at<float>(0, 0)*grady.at<float>(static_cast<int>(r/ROI_W), r%ROI_W);
-
-            J->at<float>(r, c) = grad_j.at<float>(0, 0);
-        }
-    }
-//*/
+    */
     return;
-
 }
 
 void drawGrid(const cv::Mat MK_L, const cv::Mat h, cv::Mat *image) {
@@ -447,8 +377,8 @@ void drawGrid(const cv::Mat MK_L, const cv::Mat h, cv::Mat *image) {
         }
 }
 
-void AffineTrans(const cv::Mat MK_L, const cv::Mat MK_R, const cv::Mat X_L, const cv::Mat X_R,
-                 const cv::Mat h_a, bool left, cv::Mat *image) {
+void AffineTrans(const cv::Mat MK_L, const cv::Mat MK_R, const cv::Mat X_L,
+                 const cv::Mat X_R, const cv::Mat h_a, bool left, cv::Mat *image) {
     cv::Mat warp_mat_inv;
     cv::Point2f srcTri[3];
     cv::Point2f dstTri[3];
@@ -514,7 +444,8 @@ void AffineTrans(const cv::Mat MK_L, const cv::Mat MK_R, const cv::Mat X_L, cons
 
 
 int MatchFeatures(const cv::Mat left, const cv::Mat right,
-            std::vector<cv::Point2f> *left_features, std::vector<cv::Point2f> *right_features) {
+                  std::vector<cv::Point2f> *left_features,
+                  std::vector<cv::Point2f> *right_features) {
     cv::Point2f point1;
     cv::Point2f point2;
     int found_features;
@@ -615,7 +546,7 @@ void KalmanStepCP(cv::Mat *Z_L, cv::Mat *Z_R, float sigma_model, float sigma_mea
             P_L  = cv::Mat::zeros(n, n, CV_32FC1),
             P_L_ = cv::Mat::zeros(n, n, CV_32FC1),
             S_L  = cv::Mat::zeros(m, m, CV_32FC1),
-            QL   = cv::Mat::eye(n, n, CV_32FC1),
+            QL   = cv::Mat::eye(n, n, CV_32FC1) * 0.3,
             M_L  = cv::Mat::zeros(m, n, CV_32FC1),
             R_L  = cv::Mat::eye(m, m, CV_32FC1) * pow(sigma_meas, 2),
             K_L  = cv::Mat::zeros(n, m, CV_32FC1);
@@ -625,7 +556,7 @@ void KalmanStepCP(cv::Mat *Z_L, cv::Mat *Z_R, float sigma_model, float sigma_mea
             P_R  = cv::Mat::zeros(n, n, CV_32FC1),
             P_R_ = cv::Mat::zeros(n, n, CV_32FC1),
             S_R  = cv::Mat::zeros(m, m, CV_32FC1),
-            QR   = cv::Mat::eye(n, n, CV_32FC1),
+            QR   = cv::Mat::eye(n, n, CV_32FC1) * 0.3,
             M_R  = cv::Mat::zeros(m, n, CV_32FC1),
             R_R  = cv::Mat::eye(m, m, CV_32FC1) * pow(sigma_meas, 2),
             K_R  = cv::Mat::zeros(n, m, CV_32FC1);
@@ -687,5 +618,14 @@ void KalmanStepCP(cv::Mat *Z_L, cv::Mat *Z_R, float sigma_model, float sigma_mea
 
 }
 
+double TimeDiff(timeval t1, timeval t2)
+{
+    double t;
+
+    t = (t2.tv_sec - t1.tv_sec) * 1000.0;      // sec to ms
+    t += (t2.tv_usec - t1.tv_usec) / 1000.0;   // us to ms
+
+    return t;
+}
 
 }  // namespace mc

@@ -15,7 +15,17 @@
 #include "opencv2/imgcodecs.hpp"
 #include "opencv2/xfeatures2d.hpp"
 #include "opencv2/calib3d.hpp"
-//#include <armadillo>
+// testing with eigen
+///*
+#include "Eigen/Core"
+#include "Eigen/Dense"
+#include "Eigen/LU"
+#include "opencv2/core/eigen.hpp"
+//*/
+#include <armadillo>
+
+#define NDEBUG  // for eigen optimization
+#define ARMA_NO_DEBUG  // for armadillo optimization
 
 #define CP_NUM   4
 #define IMWIDTH  640
@@ -27,7 +37,7 @@
 
 #define BASELINE 11.82   // in mm
 //#define FOCAL    18.5636  // in mm from cv::calibrationMatrixValues() opencv_calib.yaml
-#define FOCAL    19.5917  // using the first surface mirrors
+#define FOCAL    19.486  // using the first surface mirrors
 #define LENS_MIR_OFFSET 8.0
 
 namespace mc {
@@ -51,7 +61,7 @@ void ComputeExpectedImg(const cv::Mat frame_0_L, const cv::Mat frame_0_R, float 
                         int size_bins, cv::Mat *frame_comp_L, cv::Mat *frame_comp_R,
                         cv::Mat *gradx_comp_L, cv::Mat *gradx_comp_R,
                         cv::Mat *grady_comp_L, cv::Mat *grady_comp_R);
-void UpdateJ_0(const cv::Mat MK_L, const cv::Mat MK_R, const cv::Mat X_L, const cv::Mat X_R,
+void UpdateJ_0(const cv::Mat MK_L, const cv::Mat MK_R, const cv::Rect roi_L, const cv::Rect roi_R,
                const cv::Mat gradx_comp_L, const cv::Mat gradx_comp_R,
                const cv::Mat grady_comp_L, const cv::Mat grady_comp_R,
                cv::Mat *J_0_L, cv::Mat *J_0_R);
@@ -64,6 +74,7 @@ int MatchFeatures(const cv::Mat left, const cv::Mat right, std::vector<cv::Point
 cv::Mat LoadParameters(std::string path, std::string mat);
 double CalcDepth(double disp);
 void KalmanStepCP(cv::Mat *Z_L, cv::Mat *Z_R, float sigma_model, float sigma_meas);
+double TimeDiff(timeval t1, timeval t2);
 
 }  // namespace mc
 

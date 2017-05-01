@@ -12,6 +12,7 @@ TARGET = tissue_tracker
 TEMPLATE = app
 
 INCLUDEPATH += /usr/local/include/opencv
+INCLUDEPATH += /opt/ros/kinetic/include
 #INCLUDEPATH += /usr/local/include/Eigen
 LIBS += -L/usr/local/lib -lopencv_core -lopencv_imgcodecs -lopencv_highgui \
         -lopencv_videoio -lopencv_imgproc -lopencv_features2d -lopencv_xfeatures2d \
@@ -26,6 +27,7 @@ SOURCES += main.cpp\
 
 HEADERS  += mainwindow.hpp \
     ssim.hpp \
-    mc.hpp
+    mc.hpp \
+    raven_2/raven_automove.h
 
 FORMS += mainwindow.ui

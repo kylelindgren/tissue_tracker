@@ -9,6 +9,23 @@
 
 
 int main(void) {
+
+//    int r = 2064, c = 3;
+//    float heartbeat_dat[r][c];
+//    std::ifstream in("/home/kylelindgren/catkin_ws/src/"
+//                     "tissue_tracker/src/heartbeat_ave15_per2.txt");
+
+//    if (!in) {
+//        std::cout << "Cannot open file.\n";
+//        return 0;
+//    }
+
+//    for (int i = 0; i < r; i++)
+//        for (int j = 0; j < c; j++)
+//            in >> heartbeat_dat[i][j];
+
+//    in.close();
+
     cv::Mat frame_0_color_L, frame_0_L, frame_comp_L, gradx_comp_L, grady_comp_L;
     cv::Mat frame_0_color_R, frame_0_R, frame_comp_R, gradx_comp_R, grady_comp_R;
     cv::Mat frame_0_color_L_dist, frame_0_color_R_dist;
@@ -93,7 +110,8 @@ int main(void) {
 //    cv::VideoCapture cap_R(source_dir +
 //                     "depth_test_vids/Mar_15/13:11:29_stereo_data/stereo_raw_R_300_x_10fps.avi");
 
-     // first surface vids:
+    // first surface vids:
+    // Z
 //    cv::VideoCapture cap_L(source_dir +
 //                     "depth_test_vids/Apr_12/11:40:40_stereo_data/stereo_raw_L_Z250-200.avi");
 //    cv::VideoCapture cap_R(source_dir +
@@ -107,6 +125,7 @@ int main(void) {
 //    cv::VideoCapture cap_R(source_dir +
 //                     "depth_test_vids/Apr_13/09:11:50_stereo_data/stereo_raw_R_Z_step_350_200.avi");
 
+    // X
 //    cv::VideoCapture cap_L(source_dir +
 //                     "depth_test_vids/Apr_13/12:45:47_stereo_data/stereo_raw_L_X_350_50.avi");
 //    cv::VideoCapture cap_R(source_dir +
@@ -127,10 +146,53 @@ int main(void) {
 //                     "depth_test_vids/Apr_13/14:10:39_stereo_data/stereo_raw_L_Xstep_300_70.avi");
 //    cv::VideoCapture cap_R(source_dir +
 //                     "depth_test_vids/Apr_13/14:10:39_stereo_data/stereo_raw_R_Xstep_300_70.avi");
+//    cv::VideoCapture cap_L(source_dir +
+//                     "depth_test_vids/Apr_13/14:13:00_stereo_data/stereo_raw_L_Xstep_250_50.avi");
+//    cv::VideoCapture cap_R(source_dir +
+//                     "depth_test_vids/Apr_13/14:13:00_stereo_data/stereo_raw_R_Xstep_250_50.avi");
+
+//    cv::VideoCapture cap_L(source_dir +
+//                     "depth_test_vids/Apr_17/12:32:56_stereo_data/stereo_raw_L_Xstep_250.avi");
+//    cv::VideoCapture cap_R(source_dir +
+//                     "depth_test_vids/Apr_17/12:32:56_stereo_data/stereo_raw_R_Xstep_250.avi");
+//    cv::VideoCapture cap_L(source_dir +
+//                     "depth_test_vids/Apr_17/12:38:25_stereo_data/stereo_raw_L_Xstep_300.avi");
+//    cv::VideoCapture cap_R(source_dir +
+//                     "depth_test_vids/Apr_17/12:38:25_stereo_data/stereo_raw_R_Xstep_300.avi");
+//    cv::VideoCapture cap_L(source_dir +
+//                     "depth_test_vids/Apr_17/12:40:28_stereo_data/stereo_raw_L_Xstep_350.avi");
+//    cv::VideoCapture cap_R(source_dir +
+//                     "depth_test_vids/Apr_17/12:40:28_stereo_data/stereo_raw_R_Xstep_350.avi");
+    // Y
+//    cv::VideoCapture cap_L(source_dir +
+//                     "depth_test_vids/Apr_14/09:27:59_stereo_data/stereo_raw_L_Ystep_350_70.avi");
+//    cv::VideoCapture cap_R(source_dir +
+//                     "depth_test_vids/Apr_14/09:27:59_stereo_data/stereo_raw_R_Ystep_350_70.avi");
+//    cv::VideoCapture cap_L(source_dir +
+//                     "depth_test_vids/Apr_14/09:25:27_stereo_data/stereo_raw_L_Ystep_300_70.avi");
+//    cv::VideoCapture cap_R(source_dir +
+//                     "depth_test_vids/Apr_14/09:25:27_stereo_data/stereo_raw_R_Ystep_300_70.avi");
+//    cv::VideoCapture cap_L(source_dir +
+//                     "depth_test_vids/Apr_14/09:23:39_stereo_data/stereo_raw_L_Ystep_250_50.avi");
+//    cv::VideoCapture cap_R(source_dir +
+//                     "depth_test_vids/Apr_14/09:23:39_stereo_data/stereo_raw_R_Ystep_250_50.avi");
+//    cv::VideoCapture cap_L(source_dir +
+//                     "depth_test_vids/Apr_17/13:16:45_stereo_data/stereo_raw_L_Ystep_350.avi");
+//    cv::VideoCapture cap_R(source_dir +
+//                     "depth_test_vids/Apr_17/13:16:45_stereo_data/stereo_raw_R_Ystep_350.avi");
+//    cv::VideoCapture cap_L(source_dir +
+//                     "depth_test_vids/Apr_17/13:18:22_stereo_data/stereo_raw_L_Ystep_300.avi");
+//    cv::VideoCapture cap_R(source_dir +
+//                     "depth_test_vids/Apr_17/13:18:22_stereo_data/stereo_raw_R_Ystep_300.avi");
+//    cv::VideoCapture cap_L(source_dir +
+//                     "depth_test_vids/Apr_17/13:19:58_stereo_data/stereo_raw_L_Ystep_250.avi");
+//    cv::VideoCapture cap_R(source_dir +
+//                     "depth_test_vids/Apr_17/13:19:58_stereo_data/stereo_raw_R_Ystep_250.avi");
+
     cv::VideoCapture cap_L(source_dir +
-                     "depth_test_vids/Apr_13/14:13:00_stereo_data/stereo_raw_L_Xstep_250_50.avi");
+                     "depth_test_vids/Apr_21/16:11:53_stereo_data/stereo_raw_L_ran.avi");
     cv::VideoCapture cap_R(source_dir +
-                     "depth_test_vids/Apr_13/14:13:00_stereo_data/stereo_raw_R_Xstep_250_50.avi");
+                     "depth_test_vids/Apr_21/16:11:53_stereo_data/stereo_raw_R_ran.avi");
 
     int start_frame = 10;
     int end_frame = 5400;
@@ -159,20 +221,22 @@ int main(void) {
     T = mc::LoadParameters(yaml_directory + yaml_file, "T");
 
     // get camera parameters
-//    cv::Size imageSize(640, 480);
-//    double apertureWidth = 5.856;
-//    double apertureHeight = 3.276;
-//    double fieldOfViewX;
-//    double fieldOfViewY;
-//    double focalLength;
-//    cv::Point2d principalPoint;
-//    double aspectRatio;
-//    cv::calibrationMatrixValues(calib_mat_L, imageSize, apertureWidth, apertureHeight,
-//                                fieldOfViewX, fieldOfViewY, focalLength,
-//                                principalPoint, aspectRatio);
-//    std::cout << focalLength << std::endl;
-//    std::cout << fieldOfViewX << "\n" << fieldOfViewY << "\n"
-//              << principalPoint << "\n" << aspectRatio << std::endl;
+/*
+    cv::Size imageSize(640, 480);
+    double apertureWidth = 5.856;
+    double apertureHeight = 3.276;
+    double fieldOfViewX;
+    double fieldOfViewY;
+    double focalLength;
+    cv::Point2d principalPoint;
+    double aspectRatio;
+    cv::calibrationMatrixValues(calib_mat_L, imageSize, apertureWidth, apertureHeight,
+                                fieldOfViewX, fieldOfViewY, focalLength,
+                                principalPoint, aspectRatio);
+    std::cout << focalLength << std::endl;
+    std::cout << fieldOfViewX << "\n" << fieldOfViewY << "\n"
+              << principalPoint << "\n" << aspectRatio << std::endl;
+//*/
 
     cv::stereoRectify(calib_mat_L, dist_coef_L, calib_mat_R, dist_coef_R,
                       cv::Size(IMWIDTH, IMHEIGHT), R, T, rot_rect_L, rot_rect_R,
@@ -392,7 +456,7 @@ int main(void) {
     cv::Mat mid_im(current_stable_im, cv::Rect(IMWIDTH, 0, IMWIDTH, IMHEIGHT));
     cv::Mat right_im(current_stable_im, cv::Rect(IMWIDTH*2, 0, IMWIDTH, IMHEIGHT));
 
-    double tot_iters = 0, tot_time = 0;
+    double tot_iters = 0, tot_time = 0, tot_ssim = 0;
     cv::Mat dh_L_tot = cv::Mat::zeros(2*CP_NUM, 1, CV_32FC1);
     cv::Mat dh_R_tot = cv::Mat::zeros(2*CP_NUM, 1, CV_32FC1);
     cv::Mat h_a_L_old = cv::Mat::zeros(CP_NUM*2, 1, CV_32FC1);
@@ -675,10 +739,10 @@ int main(void) {
 //                    out << h_a_R.at<float>(j, 0) << " ";
 //                out << "\n";
 
-////                std::cout << h_a_L << std::endl;
-//                // perform kalman filtering here, with the noisy measurements
-////                mc::KalmanStepCP(&h_a_L, &h_a_R, 5.0, 2.0);
-////                std::cout << h_a_L << std::endl;
+//                std::cout << h_a_L << std::endl;
+                // perform kalman filtering here, with the noisy measurements
+//                mc::KalmanStepCP(&h_a_L, &h_a_R, 1.3, 1.1);  // normally 5.0, 2.0
+//                std::cout << h_a_L << std::endl;
 
 //            }
             // end kalmaning
@@ -966,7 +1030,7 @@ int main(void) {
 //            roi_proj.at<float>(i, 2) = mc::CalcDepth(mapx_L.at<float>(i, 0) -
 //                                                     mapx_R.at<float>(i, 0));
         // depth in mm -> w = Z
-        roi_proj.col(2) = (BASELINE * focal / abs(mapx_L - mapx_R)) - LENS_MIR_OFFSET;
+        roi_proj.col(2) = (BASELINE * focal / abs(mapx_L - mapx_R));  // - LENS_MIR_OFFSET;
         roi_proj.col(0) = mapx_L.mul(roi_proj.col(2));           // pixel values * depth(w)
         roi_proj.col(1) = mapy_L.mul(roi_proj.col(2));
 
@@ -975,14 +1039,14 @@ int main(void) {
 //        out << h_a_L.at<float>(1, 0) - h_a_R.at<float>(1, 0) << "\n";  // disparity
         out << roi_3D.at<float>(PIXELS/2, 0) << " ";  // x position
         out << roi_3D.at<float>(PIXELS/2, 1) << " ";  // y
-        out << roi_3D.at<float>(PIXELS/2, 2) << "\n";  // z
+        out << roi_3D.at<float>(PIXELS/2, 2) - LENS_MIR_OFFSET << "\n";  // z
 
         text = cv::format("X: %.0fmm, Y: %.0fmm, Z: %.0fmm", x, y, z);
 
         // using lists for averaging display values
         xl.push_front(roi_3D.at<float>(PIXELS/2, 0));
         yl.push_front(roi_3D.at<float>(PIXELS/2, 1));
-        zl.push_front(roi_3D.at<float>(PIXELS/2, 2));
+        zl.push_front(roi_3D.at<float>(PIXELS/2, 2) - LENS_MIR_OFFSET);
         if (frame_num > qsize) {
             x += xl.front() - xl.back(); y += yl.front() - yl.back(); z += zl.front() - zl.back();
             text = cv::format("X: %.0fmm, Y: %0.0fmm, Z: %.0fmm", x/qsize, y/qsize, z/qsize);
@@ -1010,20 +1074,21 @@ int main(void) {
         mc::DrawROIBorder(MK_L, MK_R, h_a_R, false, &right_im);
         mc::AffineTrans(MK_L, MK_R, X_L, X_R, h_a_L, true, &left_im);
         mc::AffineTrans(MK_L, MK_R, X_L, X_R, h_a_R, false, &right_im);
-        if (SHOW_METRICS) {
-            ssim_L = ssim::compute_quality_metrics_L(frame_L_roi, warped_L, 8, 1);
-            ssim_R = ssim::compute_quality_metrics_R(frame_R_roi, warped_R, 8, 1);
-            text_ssim_L = cv::format("SSIM:%.3f", ssim_L);
-            text_ssim_R = cv::format("SSIM:%.3f", ssim_R);
-            textSize = getTextSize(text_ssim_L, font_face, font_scale_ssim,
-                                   font_thickness, &font_baseline);
-            cv::Point text_ssim_Lorg(roi_0x_L + (ROI_W - textSize.width)/2, roi_0y_L-3);
-            cv::Point text_ssim_Rorg(roi_0x_R + (ROI_W - textSize.width)/2, roi_0y_R-3);
-            putText(left_im,  text_ssim_L, text_ssim_Lorg, font_face,
-                    font_scale_ssim, cv::Scalar::all(255), font_thickness, 8);
-            putText(right_im, text_ssim_R, text_ssim_Rorg, font_face,
-                    font_scale_ssim, cv::Scalar::all(255), font_thickness, 8);
-        }
+#ifdef SHOW_METRICS
+        ssim_L = ssim::compute_quality_metrics_L(frame_L_roi, warped_L, 8, 1);
+        ssim_R = ssim::compute_quality_metrics_R(frame_R_roi, warped_R, 8, 1);
+        tot_ssim += (ssim_L + ssim_R);
+        text_ssim_L = cv::format("SSIM:%.3f", ssim_L);
+        text_ssim_R = cv::format("SSIM:%.3f", ssim_R);
+        textSize = getTextSize(text_ssim_L, font_face, font_scale_ssim,
+                               font_thickness, &font_baseline);
+        cv::Point text_ssim_Lorg(roi_0x_L + (ROI_W - textSize.width)/2, roi_0y_L-3);
+        cv::Point text_ssim_Rorg(roi_0x_R + (ROI_W - textSize.width)/2, roi_0y_R-3);
+        putText(left_im,  text_ssim_L, text_ssim_Lorg, font_face,
+                font_scale_ssim, cv::Scalar::all(255), font_thickness, 8);
+        putText(right_im, text_ssim_R, text_ssim_Rorg, font_face,
+                font_scale_ssim, cv::Scalar::all(255), font_thickness, 8);
+#endif
         mc::DrawInitBorder(roi_0x_L, roi_0y_L, &frame_L);
         putText(frame_L, text, textOrg, font_face, font_scale,
                 cv::Scalar::all(255), font_thickness, 8);
@@ -1043,6 +1108,7 @@ int main(void) {
             std::cout << "Average iterations: " << tot_iters/frame_num << " after "
                       << frame_num << " frames" << std::endl;
             std::cout << "Average iters time: " << tot_time/frame_num << std::endl;
+            std::cout << "Average SSIM: " << (tot_ssim/2)/frame_num << std::endl;
             out.close();
             break;
         }
